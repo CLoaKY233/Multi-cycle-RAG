@@ -355,7 +355,7 @@ class SurrealDBVectorStore(VectorStoreInterface):
 
         try:
             result = await self.client.query(f"fn::deldocs('{confirm_string}')")
-            logger.debug(f"Delete all documents result: {result}")
+            logger.debug(f"Delete all documents ->: {result}")
 
             if isinstance(result, str):
                 success = result.strip().upper() == "DELETED"

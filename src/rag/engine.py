@@ -98,6 +98,16 @@ class RAGEngine:
         logger.info("Counting documents in vector store")
         return await self.engine.vector_store.count_documents()
 
+    async def count_web_searches(self) -> int:
+        """
+        Count search results in the vector store
+
+        Return:
+            Number of search results in vector store
+        """
+        logger.info("Counting search results in vector store")
+        return await self.engine.vector_store.count_web_searches()
+
     async def delete_all_documents(self, confirm_string: str = "CONFIRM") -> bool:
         """
         Delete all documents from the vector store

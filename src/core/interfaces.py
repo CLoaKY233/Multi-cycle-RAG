@@ -240,6 +240,11 @@ class VectorStoreInterface(ABC):
         pass
 
     @abstractmethod
+    async def count_web_searches(self) -> int:
+        """Count total number of search results in the vector store"""
+        pass
+
+    @abstractmethod
     async def delete_all_documents(self, confirm_string: str) -> bool:
         """Delete all documents from the vector store"""
         pass

@@ -42,6 +42,13 @@ class InteractiveRAGChat:
         except Exception:
             return 0
 
+    async def get_websearch_count(self) -> int:
+        """Get the count of search results in the vector store"""
+        try:
+            return await self.rag.count_web_searches()
+        except Exception:
+            return 0
+
     async def process_query_with_thinking(self, question: str):
         """Process query with reflexion loop"""
         self.query_count += 1
@@ -271,6 +278,47 @@ class InteractiveRAGChat:
         except Exception as e:
             console.print(f"[bold red]❌ Error deleting documents: {e}[/bold red]")
 
+    async def delete_all_web_search_results(self):
+        """Delete all web search results from the vector store"""
+        # Show current document count
+        current_count = await self.get_document_count()
+
+        if current_count == 0:
+            console.print("[yellow]⚠️  No documents found in vector store.[/yellow]")
+            return
+
+        console.print(
+            f"[yellow]⚠️  Warning: This will delete all {current_count} search results from the vector store![/yellow]"
+        )
+
+        # Confirm deletion
+        confirm = Prompt.ask(
+            "[bold red]Type 'CONFIRM' to proceed with deletion[/bold red]",
+            default="",
+        )
+
+        if confirm.strip() != "CONFIRM":
+            console.print("[yellow]❌ Deletion cancelled.[/yellow]")
+            return
+
+        try:
+            console.print("[bold red]🗑️  Deleting all documents...[/bold red]")
+            success = await self.rag.delete_all_documents("CONFIRM")
+
+            if success:
+                console.print(
+                    "[bold green]✅ All web search results deleted successfully![/bold green]"
+                )
+            else:
+                console.print(
+                    "[bold red]❌ Failed to delete web search results.[/bold red]"
+                )
+
+        except Exception as e:
+            console.print(
+                f"[bold red]❌ Error deleting web search results: {e}[/bold red]"
+            )
+
     async def interactive_menu(self):
         """Show interactive menu for additional options"""
         while True:
@@ -279,7 +327,8 @@ class InteractiveRAGChat:
             console.print("2. Clear memory cache")
             console.print("3. Re-ingest documents")
             console.print("4. Delete all documents")
-            console.print("5. Return to chat")
+            console.print("5. Delete all search results")
+            console.print("6. Return to chat")
 
             choice = Prompt.ask(
                 "Select an option",
@@ -296,6 +345,8 @@ class InteractiveRAGChat:
             elif choice == "4":
                 await self.delete_all_documents()
             elif choice == "5":
+                await self.delete_all_web_search_results()
+            elif choice == "6":
                 break
 
 
@@ -409,13 +460,25 @@ def ingest(
 
 
 @app.command()
-def delete():
+def deletedocs():
     """Delete all documents from the vector store"""
 
     async def delete_main():
         chat = InteractiveRAGChat("./docs")  # Path doesn't matter for delete
         console.print("[bold red]🗑️  Document Deletion Mode[/bold red]")
         await chat.delete_all_documents()
+
+    asyncio.run(delete_main())
+
+
+@app.command()
+def deleteweb():
+    """Delete all web search results from the vector store"""
+
+    async def delete_main():
+        chat = InteractiveRAGChat("./docs")  # Path doesn't matter for delete
+        console.print("[bold red]🗑️  Web Search Deletion Mode[/bold red]")
+        await chat.delete_all_web_search_results()
 
     asyncio.run(delete_main())
 
