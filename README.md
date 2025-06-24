@@ -1,14 +1,61 @@
-# Reflexion RAG Engine
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
-[![GitHub](https://img.shields.io/badge/github-reflexion--rag-green.svg)](https://github.com/cloaky233/rag_new)
+<div align="center">
 
-A production-ready Retrieval Augmented Generation (RAG) system with advanced self-correction, iterative refinement, and comprehensive web search integration. Built for complex reasoning tasks requiring multi-step analysis and comprehensive knowledge synthesis.
+# **Reflexion RAG Engine**
 
+</div>
 <p align="center">
   <img src="https://github.com/CLoaKY233/rag_new/blob/main/Images/banner1.jpg" width="400"/>
 </p>
+<div align="center">
+    <img src="https://img.shields.io/github/last-commit/cloaky233/rag_new?style=for-the-badge&logo=github&labelColor=black&color=blue" alt="Last Commit">
+    <img src="https://img.shields.io/github/languages/top/cloaky233/rag_new?style=for-the-badge&logo=python&logoColor=white&labelColor=gray&color=blue" alt="Top Language">
+    <img src="https://img.shields.io/github/languages/count/cloaky233/rag_new?style=for-the-badge&labelColor=gray&color=blue" alt="Language Count">
+</div>
+
+<br>
+
+<div align="center">
+    <h4><i>Built with the tools and technologies:</i></h4>
+    <p>
+        <img src="https://img.shields.io/badge/Markdown-000000?style=for-the-badge&logo=markdown&logoColor=white" alt="Markdown">
+        <img src="https://img.shields.io/badge/Typer-007B7C?style=for-the-badge&logo=typer&logoColor=white" alt="Typer">
+        <img src="https://img.shields.io/badge/TOML-994220?style=for-the-badge&logo=toml&logoColor=white" alt="TOML">
+        <img src="https://img.shields.io/badge/.ENV-ECD53F?style=for-the-badge&logo=dotenv&logoColor=black" alt=".ENV">
+        <img src="https://img.shields.io/badge/Rich-FDB813?style=for-the-badge&logo=rich&logoColor=black" alt="Rich">
+        <img src="https://img.shields.io/badge/Numpy-013243?style=for-the-badge&logo=numpy&logoColor=white" alt="NumPy">
+    </p>
+    <p>
+        <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
+        <img src="https://img.shields.io/badge/uv-9146FF?style=for-the-badge&logo=uv&logoColor=white" alt="uv">
+        <img src="https://img.shields.io/badge/SurrealDB-FF00A0?style=for-the-badge&logo=surrealdb&logoColor=white" alt="SurrealDB">
+        <img src="https://img.shields.io/badge/Pydantic-E92063?style=for-the-badge&logo=pydantic&logoColor=white" alt="Pydantic">
+        <img src="https://img.shields.io/badge/YAML-CB171E?style=for-the-badge&logo=yaml&logoColor=white" alt="YAML">
+    </p>
+</div>
+
+
+
+
+
+
+
+
+--- 
+
+
+
+<div align="center">
+
+A production-ready Retrieval Augmented Generation (RAG) system with advanced self-correction, iterative refinement, and comprehensive web search integration. Built for complex reasoning tasks requiring multi-step analysis and comprehensive knowledge synthesis.
+
+</div>
+
+
+
+---
+
+
 
 ## 🚀 Key Features
 
