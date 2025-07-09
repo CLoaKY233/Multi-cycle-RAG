@@ -119,8 +119,8 @@ Skip this step if you don't need web search functionality.
 
 ```bash
 # Clone the repository
-git clone https://github.com/cloaky233/rag_new.git
-cd rag_new
+git clone https://github.com/cloaky233/multi-cycle-rag.git
+cd multi-cycle-rag
 
 # Create virtual environment and install dependencies
 uv venv
@@ -138,8 +138,8 @@ uv run rag.py --help
 
 ```bash
 # Clone the repository
-git clone https://github.com/cloaky233/rag_new.git
-cd rag_new
+git clone https://github.com/cloaky233/multi-cycle-rag.git
+cd multi-cycle-rag
 
 # Create virtual environment
 python3.13 -m venv .venv
@@ -158,8 +158,8 @@ python rag.py --help
 
 ```bash
 # Clone the repository
-git clone https://github.com/cloaky233/rag_new.git
-cd rag_new
+git clone https://github.com/cloaky233/multi-cycle-rag.git
+cd multi-cycle-rag
 
 # Create virtual environment
 uv venv
@@ -527,7 +527,7 @@ After successful installation:
 If you encounter issues during installation:
 
 1. **Check the [Troubleshooting Guide](troubleshooting.md)**
-2. **Search existing [GitHub Issues](https://github.com/cloaky233/rag_new/issues)**
+2. **Search existing [GitHub Issues](https://github.com/cloaky233/multi-cycle-rag/issues)**
 3. **Create a new issue** with detailed error information
 4. **Contact the author**: [laysheth1@gmail.com](mailto:laysheth1@gmail.com)
 

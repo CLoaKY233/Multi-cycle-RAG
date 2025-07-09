@@ -5,12 +5,12 @@
 
 </div>
 <p align="center">
-  <img src="https://github.com/CLoaKY233/rag_new/blob/main/Images/banner1.jpg" width="400"/>
+  <img src="https://github.com/CLoaKY233/multi-cycle-rag/blob/main/Images/banner1.jpg" width="400"/>
 </p>
 <div align="center">
-    <img src="https://img.shields.io/github/last-commit/cloaky233/rag_new?style=for-the-badge&logo=github&labelColor=black&color=blue" alt="Last Commit">
-    <img src="https://img.shields.io/github/languages/top/cloaky233/rag_new?style=for-the-badge&logo=python&logoColor=white&labelColor=gray&color=blue" alt="Top Language">
-    <img src="https://img.shields.io/github/languages/count/cloaky233/rag_new?style=for-the-badge&labelColor=gray&color=blue" alt="Language Count">
+    <img src="https://img.shields.io/github/last-commit/cloaky233/multi-cycle-rag?style=for-the-badge&logo=github&labelColor=black&color=blue" alt="Last Commit">
+    <img src="https://img.shields.io/github/languages/top/cloaky233/multi-cycle-rag?style=for-the-badge&logo=python&logoColor=white&labelColor=gray&color=blue" alt="Top Language">
+    <img src="https://img.shields.io/github/languages/count/cloaky233/multi-cycle-rag?style=for-the-badge&labelColor=gray&color=blue" alt="Language Count">
 </div>
 
 <br>
@@ -41,7 +41,7 @@
 
 
 
---- 
+---
 
 
 
@@ -114,8 +114,8 @@ A production-ready Retrieval Augmented Generation (RAG) system with advanced sel
 
 ```bash
 # Clone the repository
-git clone https://github.com/cloaky233/rag_new
-cd rag_new
+git clone https://github.com/cloaky233/multi-cycle-rag
+cd multi-cycle-rag
 
 # Create virtual environment and install dependencies
 uv venv && source .venv/bin/activate  # Linux/macOS
@@ -463,8 +463,8 @@ if 'memory_stats' in engine_info:
 
 ```bash
 # Clone and setup
-git clone https://github.com/cloaky233/rag_new
-cd rag_new
+git clone https://github.com/cloaky233/multi-cycle-rag
+cd multi-cycle-rag
 uv venv && source .venv/bin/activate
 uv sync
 
@@ -537,8 +537,8 @@ Built with:
 
 ## 📞 Support
 
-- 🐛 [Report Issues](https://github.com/cloaky233/rag_new/issues)
-- 💬 [GitHub Discussions](https://github.com/cloaky233/rag_new/discussions)
+- 🐛 [Report Issues](https://github.com/cloaky233/multi-cycle-rag/issues)
+- 💬 [GitHub Discussions](https://github.com/cloaky233/multi-cycle-rag/discussions)
 - 📧 Email: laysheth1@gmail.com
 - 💼 LinkedIn: [cloaky233](https://linkedin.com/in/cloaky233)
 
