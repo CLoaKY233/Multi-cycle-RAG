@@ -105,38 +105,49 @@ A production-ready Retrieval Augmented Generation (RAG) system with advanced sel
 ### Prerequisites
 
 - **Python 3.13+** with UV package manager (recommended)
-- **GitHub Personal Access Token** with Models access
-- **SurrealDB** instance (local or cloud)
+- **GitHub Personal Access Token** with **`repo`** and **`read:org`** scopes.
+- (Optional) Google Custom Search API Key and CSE ID for web search.
+- **SurrealDB** instance (local or cloud). Refer to the [official SurrealDB installation guide](https://surrealdb.com/docs/surrealdb/installation).
 - **Google Search API** credentials (optional, for web search)
 - **8GB+ RAM** recommended for optimal performance
+- **`uv`** package manager (recommended). If installed skip the `Install UV Package Manager` step.
+
+
+### Install UV Package Manager
+
+UV is a lightning-fast Python package manager written in Rust that significantly outperforms traditional pip:
+
+```bash
+# Linux/macOS
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows (PowerShell as Administrator)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Alternative: via Homebrew
+brew install uv
+
+# Verify installation
+uv --version
+```
 
 ### Installation
 
 ```bash
-# Clone the repository
-git clone https://github.com/cloaky233/multi-cycle-rag
+# 1. Clone the repository
+git clone https://github.com/cloaky233/multi-cycle-rag.git
 cd multi-cycle-rag
 
-# Create virtual environment and install dependencies
-uv venv && source .venv/bin/activate  # Linux/macOS
-# or .venv\Scripts\activate on Windows
+# 2. Create virtual environment and install dependencies
+uv venv && source .venv/bin/activate # macOS/Linux# .venv\Scripts\activate # Windows
 uv sync
-
-# Configure environment variables
-cp .env.example .env
-# Edit .env with your credentials
-
-# Ingest documents
-uv run rag.py ingest --docs_path=./docs
-
-# Start interactive chat
-uv run rag.py chat
 ```
+
+`uv sync` : This single command installs all production dependencies including SurrealDB Python SDK, Azure AI Inference, Crawl4AI for web scraping, and all LLM related libraries.
 
 ## ⚙ Configuration
 
 Create a `.env` file in the project root:
-
 ```bash
 # GitHub Models Configuration
 GITHUB_TOKEN=your_github_pat_token_here
@@ -172,8 +183,63 @@ MAX_CACHE_SIZE=100
 CHUNK_SIZE=1000
 CHUNK_OVERLAP=200
 ```
+### Set up Google Custom Search
+
+**1. Obtain a Google Custom Search API Key**
+
+The API key authenticates your project's requests to Google's services.
+
+- **Go to the Google Cloud Console**: Navigate to the [Google Cloud Console](https://console.cloud.google.com/) and create a new project if you don't have one already.
+- **Enable the API**: In your project's dashboard, go to the "APIs & Services" section. Find and enable the **Custom Search API**.
+- **Create Credentials**: Go to the "Credentials" tab within "APIs & Services". Click "Create Credentials" and select "API key".
+- **Copy and Secure the Key**: A new API key will be generated. Copy this key and store it securely. It is recommended to restrict the key's usage to only the "Custom Search API" for security purposes.
+
+**2. Create a Programmable Search Engine and get the CSE ID**
+
+The CSE ID (also called the Search Engine ID or `cx`) tells Google *what* to search (e.g., the entire web or specific sites you define).
+
+- **Go to the Programmable Search Engine Page**: Visit the [Google Programmable Search Engine](https://cse.google.com/cse/create/new) website and sign in with your Google account.
+- **Create a New Search Engine**: Click "Add" or "New search engine" to start the setup process.
+- **Configure Your Engine**:
+    - Give your search engine a name.
+    - Under "Sites to search," you can specify particular websites or enable the option to "Search the entire web."
+    - Click "Create" when you are done.
+- **Find Your Search Engine ID (CSE ID)**: After creating the engine, go to the "Setup" or "Overview" section of its control panel. Your **Search Engine ID** will be displayed there. Copy this ID.
+
+**3. Update Your Project Configuration**
+
+Finally, take the two values you have obtained and place them in your project's `.env` file:
+
+```
+# .env file
+...
+GOOGLE_API_KEY=your_google_api_key_here
+GOOGLE_CSE_ID=your_google_cse_id_here
+...
+```
+
+### Setup Crawl4AI for Web Search
+
+For web search, you must have the google api key and cse id, for 
+
+```bash
+# Install Crawl4AI with browser dependencies
+uv run crawl4ai-setup
+
+# Verify installation
+uv run crawl4ai-doctor
+
+# Manual browser setup if needed
+python -m playwright install chromium
+```
+### SurrealDB schema setup 
+Run all the queries in the `schema` directory (either as a query or in surrealist) 
 
 ## 🎮 Usage
+```bash
+# Ingest documents
+uv run rag.py ingest --docs_path=./docs
+```
 
 ### Command Line Interface
 
@@ -366,6 +432,7 @@ rag/
 ## 🔧 Advanced Configuration
 
 ### Model Selection
+**Note** : Model Names might change with provider updates, please refer [GitHub Models](https://github.com/features/models) to find the model catalogue.
 
 ```python
 # Generation Models (Primary Response)
@@ -456,38 +523,6 @@ if 'memory_stats' in engine_info:
 - **Quality Assessment**: Content validation and filtering
 - **Smart Truncation**: Token-aware content limiting
 - **Error Handling**: Graceful fallback to snippets
-
-## 🚀 Deployment
-
-### Local Development
-
-```bash
-# Clone and setup
-git clone https://github.com/cloaky233/multi-cycle-rag
-cd multi-cycle-rag
-uv venv && source .venv/bin/activate
-uv sync
-
-# Configure environment
-cp .env.example .env
-# Edit .env with your credentials
-
-# Start development
-uv run rag.py chat
-```
-
-### Production Deployment
-
-```bash
-# Using Docker
-docker build -t reflexion-rag .
-docker run --env-file .env -v $(pwd)/docs:/app/docs reflexion-rag
-
-# Using systemd service
-sudo cp reflexion-rag.service /etc/systemd/system/
-sudo systemctl enable reflexion-rag
-sudo systemctl start reflexion-rag
-```
 
 ## 🤝 Contributing
 
