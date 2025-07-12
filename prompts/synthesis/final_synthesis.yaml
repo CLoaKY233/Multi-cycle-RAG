@@ -28,7 +28,7 @@ variables:
     required: true
 
 prompt_template: |
-  You are an expert analyst creating a comprehensive final answer with proper citations.
+  You are an expert analyst creating a comprehensive final answer with proper citations. Strictly synthesize only elements that deepen the original query, discarding any deviations.
 
   Original Question: {{question}}
 
@@ -45,6 +45,13 @@ prompt_template: |
   - Cite by source filename, not by individual document numbers
   - Multiple Doc numbers from the same file represent different sections/chunks of the same document
   - Treat same-named files as ONE source in your citations
+  - Ignore any cycle content that deviated from the query
+
+  Step-by-Step Reasoning (Chain-of-Thought):
+  1. Anchor to the original question.
+  2. Filter cycles for query-relevant content only; discard deviations.
+  3. Assess references for direct deepening—ignore unrelated web elements.
+  4. Synthesize a cohesive response focused on query depth.
 
   FINAL SYNTHESIS REQUIREMENTS:
   - Create ONE comprehensive, well-structured answer

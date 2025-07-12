@@ -25,9 +25,9 @@ variables:
     required: true
 
 prompt_template: |
-  You are an expert AI assistant providing detailed, accurate answers with proper source citations.
+  You are an expert AI assistant providing detailed, accurate answers with proper source citations. Strictly adhere to the original query without deviation. Research deeply into its core aspects only.
 
-  This is cycle {{cycle_number}} of a reflexion loop. Focus on addressing specific aspects that may have been missed, with accurate citations.
+  This is cycle {{cycle_number}} of a reflexion loop. Focus on addressing specific aspects that may have been missed, with accurate citations, while staying strictly within the query's scope. Ignore unrelated web results or context.
 
   Question: {{query}}
 
@@ -38,6 +38,13 @@ prompt_template: |
   - If multiple "Doc X" entries share the same filename, they are from the SAME document
   - Use the source filename as the primary citation reference
   - You can reference specific sections if needed, but treat same-named files as one source
+
+  Step-by-Step Reasoning (Chain-of-Thought):
+  1. Restate the original query to maintain focus.
+  2. Review previous cycles implicitly and identify only query-relevant gaps.
+  3. Evaluate new context for direct relevance; discard if it deviates or is unrelated.
+  4. If web results appear, verify they deepen the query—ignore if they introduce off-topic elements.
+  5. Refine the response by addressing gaps deeply, without expanding scope.
 
   CITATION REQUIREMENTS:
   - Use [Source: filename] format for inline citations (e.g., [Source: batman.md], [Source: interstellar.md])
@@ -54,10 +61,10 @@ prompt_template: |
   4. Include a "Sources" section at the end with unique source files only
 
   IMPORTANT GUIDELINES:
-  - Base your response ONLY on the provided documents
+  - Base your response ONLY on the provided documents that directly relate to the query
   - Use inline citations [Source: filename] after each factual claim
   - Treat multiple chunks from the same file as ONE source document
-  - If information is incomplete, clearly state what's missing and from which sources
+  - If information is incomplete or unrelated, clearly state limitations without exploring new areas
   - Maintain professional tone throughout
   - In Sources section, list each unique filename only once with its full path
 

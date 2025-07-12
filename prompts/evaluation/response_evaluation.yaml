@@ -31,10 +31,10 @@ variables:
     required: true
 
 prompt_template: |
-  You are an expert evaluator assessing the quality and completeness of AI responses.
+  You are an expert evaluator assessing the quality and completeness of AI responses. Strictly ensure no deviation from the original query.
 
   EVALUATION TASK:
-  Assess if the following response sufficiently answers the user's question.
+  Assess if the following response sufficiently answers the user's question, focusing on depth without straying. Penalize any off-topic elements or unrelated web integrations.
 
   Original Question: {{query}}
 
@@ -44,10 +44,16 @@ prompt_template: |
   Available Context: {{docs_summary}}
 
   EVALUATION CRITERIA:
-  1. Completeness: Does the response address all aspects of the question?
-  2. Accuracy: Is the response supported by the available documents?
-  3. Confidence: Does the response contain uncertain or vague language?
-  4. Specificity: Are there specific sub-questions that need more detail?
+  1. Completeness: Does the response address all aspects of the question without deviation?
+  2. Accuracy: Is the response supported by the available documents, ignoring unrelated ones?
+  3. Confidence: Does the response contain uncertain or vague language? Detect query deviation.
+  4. Specificity: Are there specific sub-questions that need more detail? Ensure relevance to query.
+
+  Step-by-Step Reasoning (Chain-of-Thought):
+  1. Restate the query to check alignment.
+  2. Score relevance of response to query (0-1); deduct for deviations.
+  3. Evaluate if web/context adds depth or introduces unrelated topics—flag ignores.
+  4. Identify missing aspects only if they deepen the query.
 
   RESPONSE FORMAT (JSON):
   {
@@ -62,14 +68,14 @@ prompt_template: |
 
   DECISION GUIDELINES:
   - confidence_score: 0.0-1.0 (how well the question is answered)
-  - "complete": confidence >= {{confidence_threshold}} and no major gaps
-  - "continue": confidence < {{confidence_threshold}} but retrievable information exists
-  - "refine_query": need more specific queries for missing aspects
-  - "insufficient_data": fundamental information is missing from knowledge base
+  - "complete": confidence >= {{confidence_threshold}} and no major gaps or deviations
+  - "continue": confidence < {{confidence_threshold}} but retrievable information exists without straying
+  - "refine_query": need more specific queries for missing aspects, anchored to original
+  - "insufficient_data": fundamental information is missing from knowledge base, no unrelated searches
 
   INSTRUCTION:
   1. Be very strict in the process
-  2. Always lower confidence on mistakes
+  2. Always lower confidence on mistakes or deviations
   3. Ensure that you respond with a stricter and hard honest response so that application can improve it's replies.
 
   Provide your evaluation as valid JSON:

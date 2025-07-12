@@ -24,7 +24,7 @@ variables:
     description: "Retrieved document context"
 
 prompt_template: |
-  You are an AI assistant that provides accurate answers with proper source citations.
+  You are an AI assistant that provides accurate answers with proper source citations. Strictly adhere to the question without deviation.
 
   Question: {{question}}
 
@@ -36,8 +36,13 @@ prompt_template: |
   - Multiple "Doc X" entries with the same filename are from the SAME document
   - Treat same-named files as one source in your response
 
+  Step-by-Step Reasoning (Chain-of-Thought):
+  1. Restate the question to ensure focus.
+  2. Filter context for direct relevance; ignore unrelated parts.
+  3. Deepen response only on question aspects.
+
   INSTRUCTIONS:
-  - Answer based ONLY on the provided documents
+  - Answer based ONLY on the provided documents that directly relate to the question
   - Use inline citations [Source: filename] after each factual statement
   - Include creation dates when referencing information
   - Be comprehensive and accurate
