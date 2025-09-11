@@ -49,7 +49,7 @@ class GitHubLLM(LLMInterface):
                 temperature=kwargs.get("temperature", self.temperature),
                 max_tokens=kwargs.get("max_tokens", self.max_tokens),
                 top_p=kwargs.get("top_p", 1.0),
-                model_extras={"stream_options": {"include_usage": True}},
+                # model_extras={"stream_options": {"include_usage": True}},
             )
             for update in response:
                 chunk_content = ""
@@ -99,7 +99,7 @@ class GitHubLLM(LLMInterface):
                 temperature=kwargs.get("temperature", self.temperature),
                 max_tokens=kwargs.get("max_tokens", self.max_tokens),
                 top_p=kwargs.get("top_p", 1.0),
-                model_extras={"stream_options": {"include_usage": True}},
+                # model_extras={"stream_options": {"include_usage": True}},
             )
 
             for update in response:
