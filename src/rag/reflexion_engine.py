@@ -150,24 +150,46 @@ class ReflexionRAGEngine:
                     )
 
                     if should_perform_web_search:
-                        # Use combined search with token limits
+                        # TRUE PARALLEL execution - DB search + web search simultaneously
                         logger.info(
-                            "Performing combined DB and web search",
+                            "Performing parallel DB and web search",
                             cycle=cycle_number,
                         )
 
-                        # Use the combined search method with proper limits
                         k_docs = min(k, 2)  # Limit DB docs
                         k_web = min(
                             settings.web_search_retrieval_k, 2
                         )  # Limit web docs
 
                         try:
-                            retrieved_docs = (
-                                await self.vector_store.similarity_search_combined(
+                            # Execute DB search and web search in parallel
+                            db_task = asyncio.create_task(
+                                self.vector_store.similarity_search_combined(
                                     current_query, k_docs=k_docs, k_web=k_web
                                 )
                             )
+                            web_task = asyncio.create_task(
+                                self._perform_web_search(current_query)
+                            )
+
+                            # Wait for both to complete
+                            results = await asyncio.gather(
+                                db_task, web_task, return_exceptions=True
+                            )
+
+                            # Handle results with explicit type assertions
+                            retrieved_docs = []
+                            web_search_results = []
+
+                            if isinstance(results[0], Exception):
+                                logger.error("DB retrieval error", error=str(results[0]))
+                            elif isinstance(results[0], list):
+                                retrieved_docs = results[0]
+
+                            if isinstance(results[1], Exception):
+                                logger.error("Web search error", error=str(results[1]))
+                            elif isinstance(results[1], list):
+                                web_search_results = results[1]
 
                             # Separate for reporting
                             db_docs = [
@@ -181,13 +203,8 @@ class ReflexionRAGEngine:
                                 if d.metadata.get("source_type") == "web_search"
                             ]
 
-                            # For web search results, we still need to perform the search for new content
-                            web_search_results = await self._perform_web_search(
-                                current_query
-                            )
-
                             logger.info(
-                                "Combined retrieval completed",
+                                "Parallel retrieval completed",
                                 db_docs=len(db_docs),
                                 web_docs=len(web_docs),
                                 new_web_results=len(web_search_results),
@@ -257,8 +274,12 @@ class ReflexionRAGEngine:
                         current_query, truncated_context, cycle_number
                     )
 
-                # Step 4: Generate partial answer
+                # Step 4: Generate partial answer with PARALLEL EVALUATION & EARLY STOPPING
                 partial_answer_chunks = []
+                eval_task = None
+                eval_started = False
+                early_stopped = False
+
                 try:
                     async for chunk in self.generation_llm.generate_stream(
                         generation_prompt
@@ -276,6 +297,35 @@ class ReflexionRAGEngine:
                                     "web_results_count": len(web_search_results),
                                 },
                             )
+
+                        partial_content = "".join(partial_answer_chunks)
+
+                        # HEURISTIC EARLY STOPPING: Check quick confidence at ~50% through expected answer
+                        if len(partial_content) > 750 and cycle_number == 1:
+                            quick_confidence = self.reflexion_evaluator.predict_quick_confidence(
+                                partial_content
+                            )
+                            if quick_confidence >= 0.92:
+                                logger.info(
+                                    f"High confidence detected early ({quick_confidence:.2f}), stopping generation"
+                                )
+                                early_stopped = True
+                                break
+
+                        # OPTIMIZATION: Start evaluation early when we have enough content
+                        if (
+                            len(partial_content) >= 500
+                            and not eval_started
+                            and cycle_number == 1
+                        ):
+                            logger.debug("Starting early evaluation on partial answer")
+                            eval_task = asyncio.create_task(
+                                self.reflexion_evaluator.evaluate_response(
+                                    question, partial_content, retrieved_docs, cycle_number
+                                )
+                            )
+                            eval_started = True
+
                     yield StreamingChunk(
                         content="\n",  # Add newline buffer
                         metadata={
@@ -341,15 +391,51 @@ class ReflexionRAGEngine:
                     cycle=cycle_number,
                 )
 
-                # Step 5: Self-evaluation
+                # Step 5: Self-evaluation with SPECULATIVE FOLLOW-UP GENERATION
                 logger.info("Evaluating response quality", cycle=cycle_number)
+                followup_task = None
                 try:
-                    evaluation = await self.reflexion_evaluator.evaluate_response(
-                        question,
-                        partial_answer,
-                        retrieved_docs,
-                        cycle_number,
-                    )
+                    # Check if we already started evaluation during streaming
+                    if eval_task and eval_started:
+                        logger.debug("Waiting for early-started evaluation to complete")
+                        evaluation = await eval_task
+                        # Re-evaluate with final answer if different from partial
+                        if len(partial_answer) > len("".join(partial_answer_chunks[:10])) * 1.5:
+                            logger.debug("Final answer significantly longer, re-evaluating")
+                            # Start evaluation and follow-up generation in parallel
+                            eval_task_final = asyncio.create_task(
+                                self.reflexion_evaluator.evaluate_response(
+                                    question,
+                                    partial_answer,
+                                    retrieved_docs,
+                                    cycle_number,
+                                )
+                            )
+                            # Speculatively generate follow-ups (may not need them)
+                            followup_task = asyncio.create_task(
+                                self.reflexion_evaluator.generate_follow_up_queries(
+                                    question, partial_answer, []
+                                )
+                            )
+                            evaluation = await eval_task_final
+                    else:
+                        # SPECULATIVE EXECUTION: Start both evaluation and follow-up generation
+                        eval_task_final = asyncio.create_task(
+                            self.reflexion_evaluator.evaluate_response(
+                                question,
+                                partial_answer,
+                                retrieved_docs,
+                                cycle_number,
+                            )
+                        )
+                        # Speculatively generate follow-ups in parallel (60% chance we'll need them)
+                        followup_task = asyncio.create_task(
+                            self.reflexion_evaluator.generate_follow_up_queries(
+                                question, partial_answer, []
+                            )
+                        )
+                        evaluation = await eval_task_final
+
                     logger.info(
                         "Evaluation complete",
                         confidence=f"{evaluation.confidence_score:.2f}",
@@ -390,6 +476,22 @@ class ReflexionRAGEngine:
                         error=str(e),
                         cycle=cycle_number,
                     )
+
+                # CIRCUIT BREAKER: Skip additional cycles for exceptional first-cycle confidence
+                if cycle_number == 1 and evaluation.confidence_score >= 0.95:
+                    logger.info(
+                        "Exceptional confidence on first cycle, skipping reflexion",
+                        confidence=f"{evaluation.confidence_score:.2f}",
+                    )
+                    # Cancel speculative followup task if running
+                    if followup_task and not followup_task.done():
+                        followup_task.cancel()
+                        try:
+                            await followup_task
+                        except asyncio.CancelledError:
+                            pass
+                    reflexion_memory.final_answer = partial_answer
+                    break
 
                 # Step 6: Decision tree
                 if evaluation.decision == ReflexionDecision.INSUFFICIENT_DATA:
@@ -435,10 +537,17 @@ class ReflexionRAGEngine:
                     break
 
                 else:
-                    # Continue with follow-up queries
+                    # Continue with follow-up queries (use speculative task if available)
                     try:
                         if evaluation.follow_up_queries:
                             current_query = evaluation.follow_up_queries[0]
+                            # Cancel speculative task if we don't need it
+                            if followup_task and not followup_task.done():
+                                followup_task.cancel()
+                                try:
+                                    await followup_task
+                                except asyncio.CancelledError:
+                                    pass
                             logger.info(
                                 "Following up with generated query",
                                 query=current_query,
@@ -446,11 +555,17 @@ class ReflexionRAGEngine:
                             )
                         else:
                             try:
-                                follow_ups = await self.reflexion_evaluator.generate_follow_up_queries(
-                                    question,
-                                    partial_answer,
-                                    evaluation.missing_aspects,
-                                )
+                                # Use speculative task if available, otherwise generate now
+                                if followup_task:
+                                    logger.debug("Using speculative follow-up queries")
+                                    follow_ups = await followup_task
+                                else:
+                                    follow_ups = await self.reflexion_evaluator.generate_follow_up_queries(
+                                        question,
+                                        partial_answer,
+                                        evaluation.missing_aspects,
+                                    )
+
                                 if follow_ups:
                                     current_query = follow_ups[0]
                                     logger.info(

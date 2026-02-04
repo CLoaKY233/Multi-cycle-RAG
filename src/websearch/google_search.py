@@ -2,9 +2,9 @@ import asyncio
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, List, cast
+from typing import Any, List, Optional, cast
 
-import requests
+import aiohttp
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode, CrawlerRunConfig
 from crawl4ai.content_filter_strategy import PruningContentFilter
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
@@ -59,17 +59,21 @@ class GoogleWebSearch(WebSearchInterface):
         self.cse_id = settings.google_cse_id
         self.base_url = "https://www.googleapis.com/customsearch/v1"
 
-        # Session configuration with proper headers
-        self.session = requests.Session()
-        self.session.headers.update(
-            {"User-Agent": "RAG-WebSearch/1.0 (Compatible; Educational)"}
-        )
+        # Async HTTP session (reused for all requests)
+        self._session: Optional[aiohttp.ClientSession] = None
 
         self.selectors = ContentSelectors()
 
         # Validate configuration
         if not self.api_key or not self.cse_id:
             logger.warning("Google Search API credentials not configured")
+
+    async def _ensure_session(self):
+        """Ensure aiohttp session is initialized"""
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(
+                headers={"User-Agent": "RAG-WebSearch/1.0 (Compatible; Educational)"}
+            )
 
     async def is_available(self) -> bool:
         """Check if web search service is available"""
@@ -110,7 +114,9 @@ class GoogleWebSearch(WebSearchInterface):
     async def _perform_search(
         self, query: str, num_results: int
     ) -> List[SearchResultData]:
-        """Perform Google Custom Search with rate limiting"""
+        """Perform Google Custom Search with rate limiting (async)"""
+        await self._ensure_session()
+
         params = {
             "key": self.api_key,
             "cx": self.cse_id,
@@ -122,47 +128,44 @@ class GoogleWebSearch(WebSearchInterface):
             # Add retry logic for rate limiting
             max_retries = 3
             for attempt in range(max_retries):
-                response = self.session.get(
+                async with self._session.get(
                     self.base_url,
                     params=params,
-                    timeout=settings.web_search_timeout,
-                )
+                    timeout=aiohttp.ClientTimeout(total=settings.web_search_timeout),
+                ) as response:
+                    if response.status == 429:  # Rate limited
+                        wait_time = 2**attempt  # Exponential backoff
+                        logger.warning(f"Rate limited, waiting {wait_time}s before retry")
+                        await asyncio.sleep(wait_time)
+                        continue
 
-                if response.status_code == 429:  # Rate limited
-                    wait_time = 2**attempt  # Exponential backoff
-                    logger.warning(f"Rate limited, waiting {wait_time}s before retry")
-                    await asyncio.sleep(wait_time)
-                    continue
+                    response.raise_for_status()
+                    data = await response.json()
 
-                response.raise_for_status()
-                break
+                    # Check for API errors
+                    if "error" in data:
+                        raise WebSearchAPIException(f"Google API Error: {data['error']}")
+
+                    items = data.get("items", [])
+                    logger.info(f"Google search returned {len(items)} results", query=query)
+
+                    # Convert to SearchResultData objects
+                    search_results = []
+                    for i, item in enumerate(items, 1):
+                        search_results.append(
+                            SearchResultData(
+                                title=item.get("title", ""),
+                                url=item.get("link", ""),
+                                snippet=item.get("snippet", ""),
+                                rank=i,
+                            )
+                        )
+
+                    return search_results
             else:
                 raise WebSearchAPIException("Max retries exceeded due to rate limiting")
 
-            data = response.json()
-
-            # Check for API errors
-            if "error" in data:
-                raise WebSearchAPIException(f"Google API Error: {data['error']}")
-
-            items = data.get("items", [])
-            logger.info(f"Google search returned {len(items)} results", query=query)
-
-            # Convert to SearchResultData objects
-            search_results = []
-            for i, item in enumerate(items, 1):
-                search_results.append(
-                    SearchResultData(
-                        title=item.get("title", ""),
-                        url=item.get("link", ""),
-                        snippet=item.get("snippet", ""),
-                        rank=i,
-                    )
-                )
-
-            return search_results
-
-        except requests.exceptions.RequestException as e:
+        except aiohttp.ClientError as e:
             raise WebSearchAPIException(f"Search API request failed: {e}")
         except Exception as e:
             raise WebSearchAPIException(f"Search failed: {e}")
@@ -198,8 +201,10 @@ class GoogleWebSearch(WebSearchInterface):
         )
 
         async with AsyncWebCrawler(config=browser_config) as crawler:
-            # Process URLs concurrently but with limits
-            semaphore = asyncio.Semaphore(2)  # Reduced for stability
+            # Process URLs concurrently with configurable limits
+            semaphore = asyncio.Semaphore(
+                settings.web_crawl_concurrency
+            )  # Increased from 2 to 5 for faster extraction
 
             tasks = [
                 self._extract_single_url_fixed(crawler, result, semaphore)
@@ -486,8 +491,8 @@ class GoogleWebSearch(WebSearchInterface):
 
     async def close(self):
         """Clean up resources"""
-        if hasattr(self, "session"):
-            self.session.close()
+        if self._session and not self._session.closed:
+            await self._session.close()
 
     async def __aenter__(self):
         """Async context manager entry"""

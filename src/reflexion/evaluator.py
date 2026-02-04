@@ -47,6 +47,74 @@ class SmartReflexionEvaluator(ReflexionEvaluatorInterface):
             "unclear from the context",
         ]
 
+        # Definitive phrases for quick confidence check
+        self.definitive_phrases = [
+            "according to",
+            "based on",
+            "specifically",
+            "the answer is",
+            "research shows",
+            "data indicates",
+            "studies show",
+            "evidence suggests",
+            "it is confirmed",
+            "clearly states",
+        ]
+
+    def predict_quick_confidence(self, partial_answer: str) -> float:
+        """Heuristic-based confidence check (no LLM call) for early stopping"""
+        if not partial_answer or len(partial_answer) < 100:
+            return 0.3  # Too short to be confident
+
+        answer_lower = partial_answer.lower()
+
+        # Count uncertainty phrases (reduces confidence)
+        uncertainty_count = sum(
+            1 for phrase in self.uncertainty_phrases if phrase in answer_lower
+        )
+
+        # Count definitive statements (increases confidence)
+        definitive_count = sum(
+            1 for phrase in self.definitive_phrases if phrase in answer_lower
+        )
+
+        # Check for citation/reference patterns
+        has_citations = bool(
+            re.search(r"\[[\d,\s]+\]|\(\d{4}\)|et al\.|doi:|arXiv:", partial_answer)
+        )
+
+        # Check for structured content (lists, sections)
+        has_structure = bool(
+            re.search(
+                r"(?:^|\n)(?:\d+\.|[-*])\s+|(?:^|\n)#{1,3}\s+", partial_answer, re.MULTILINE
+            )
+        )
+
+        # Calculate quick confidence
+        confidence = 0.7  # Base confidence
+
+        # Penalize for uncertainty
+        confidence -= min(uncertainty_count * 0.15, 0.4)
+
+        # Reward for definitive statements
+        confidence += min(definitive_count * 0.1, 0.25)
+
+        # Reward for citations
+        if has_citations:
+            confidence += 0.1
+
+        # Reward for structure
+        if has_structure:
+            confidence += 0.05
+
+        # Adjust for length (longer answers tend to be more complete)
+        if len(partial_answer) > 500:
+            confidence += 0.05
+        if len(partial_answer) > 1000:
+            confidence += 0.05
+
+        return max(0.0, min(1.0, confidence))
+
     async def evaluate_response(
         self,
         query: str,
