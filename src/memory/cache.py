@@ -80,7 +80,7 @@ class ReflexionMemoryCache:
             "oldest_entry": self._get_oldest_entry_age(),
             "hits": self.hits,
             "misses": self.misses,
-            "hit_rate": f"{self.get_hit_rate():.2%}",
+            "hit_rate": self.get_hit_rate(),  # Return as float, not formatted string
             "ttl_hours": self.cache_ttl / 3600,
         }
 
