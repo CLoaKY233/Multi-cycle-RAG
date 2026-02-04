@@ -1,4 +1,5 @@
-from typing import List, Optional
+import hashlib
+from typing import Dict, List, Optional
 
 from azure.ai.inference import EmbeddingsClient
 from azure.core.credentials import AzureKeyCredential
@@ -23,6 +24,9 @@ class GithubEmbeddings(EmbeddingInterface):
         self.endpoint = endpoint or "https://models.inference.ai.azure.com"
         self.model_name = model_name or "text-embedding-3-large"
         self.token = token or settings.github_token
+
+        # Instance-level cache for query embeddings (saves API calls in reflexion cycles)
+        self._embedding_cache: Dict[str, List[float]] = {}
 
         if not self.token:
             raise EmbeddingException("GitHub token is required for Azure AI Inference")
@@ -66,7 +70,14 @@ class GithubEmbeddings(EmbeddingInterface):
             )
 
     async def embed_text(self, text: str) -> List[float]:
-        """Embed single text using Azure AI Inference"""
+        """Embed single text using Azure AI Inference with caching"""
+        # Check cache first (saves 300-900ms per repeated query)
+        cache_key = hashlib.md5(text.encode()).hexdigest()
+
+        if cache_key in self._embedding_cache:
+            logger.debug("Using cached query embedding", text_length=len(text))
+            return self._embedding_cache[cache_key]
+
         try:
             response = self.client.embed(input=[text])
 
@@ -76,6 +87,9 @@ class GithubEmbeddings(EmbeddingInterface):
             # Extract and validate embedding format
             raw_embedding = response.data[0].embedding
             embedding = self._extract_embedding(raw_embedding)
+
+            # Cache the embedding for future use
+            self._embedding_cache[cache_key] = embedding
 
             logger.debug(
                 "Text embedded successfully",

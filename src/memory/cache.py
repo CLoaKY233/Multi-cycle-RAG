@@ -8,21 +8,38 @@ from ..core.interfaces import ReflexionMemory
 
 
 class ReflexionMemoryCache:
-    """Memory cache for reflexion loops with LRU eviction"""
+    """Memory cache for reflexion loops with LRU eviction and TTL"""
 
-    def __init__(self, max_size: Optional[int] = None):
-        self.max_size = max_size or settings.max_cache_size
+    def __init__(self, max_size: Optional[int] = None, cache_ttl: int = 86400):
+        self.max_size = max_size or 500  # Increased from 100 to 500
         self.cache: OrderedDict[str, ReflexionMemory] = OrderedDict()
         self.access_times: Dict[str, float] = {}
+        self.cache_ttl = cache_ttl  # Default: 24 hours
+
+        # Track cache statistics
+        self.hits = 0
+        self.misses = 0
 
     def get(self, query_hash: str) -> Optional[ReflexionMemory]:
-        """Get reflexion memory from cache"""
+        """Get reflexion memory from cache with TTL check"""
         if query_hash in self.cache:
+            # Check TTL expiration
+            age = time.time() - self.access_times.get(query_hash, 0)
+            if age > self.cache_ttl:
+                # Cache entry expired, remove it
+                self.cache.pop(query_hash)
+                self.access_times.pop(query_hash, None)
+                self.misses += 1
+                return None
+
             # Move to end (most recently used)
             memory = self.cache.pop(query_hash)
             self.cache[query_hash] = memory
             self.access_times[query_hash] = time.time()
+            self.hits += 1
             return memory
+
+        self.misses += 1
         return None
 
     def put(self, query_hash: str, memory: ReflexionMemory) -> None:
@@ -47,6 +64,13 @@ class ReflexionMemoryCache:
         """Clear all cache entries"""
         self.cache.clear()
         self.access_times.clear()
+        self.hits = 0
+        self.misses = 0
+
+    def get_hit_rate(self) -> float:
+        """Calculate cache hit rate"""
+        total = self.hits + self.misses
+        return self.hits / total if total > 0 else 0.0
 
     def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics"""
@@ -54,6 +78,10 @@ class ReflexionMemoryCache:
             "size": len(self.cache),
             "max_size": self.max_size,
             "oldest_entry": self._get_oldest_entry_age(),
+            "hits": self.hits,
+            "misses": self.misses,
+            "hit_rate": f"{self.get_hit_rate():.2%}",
+            "ttl_hours": self.cache_ttl / 3600,
         }
 
     def _get_oldest_entry_age(self) -> Optional[float]:

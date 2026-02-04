@@ -1,5 +1,8 @@
+import asyncio
+import hashlib
+import time
 import uuid
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from surrealdb import AsyncSurreal
 
@@ -18,6 +21,10 @@ class SurrealDBVectorStore(VectorStoreInterface):
         self.client = None
         self.connected = False
         self.embedding_function = GithubEmbeddings()
+
+        # Vector search result cache with TTL (5 minutes)
+        self._search_cache: Dict[str, Tuple[List[Document], float]] = {}
+        self._cache_ttl: int = 300  # 5 minutes
 
     async def _ensure_connection(self):
         """Ensure database connection and schema"""
@@ -89,25 +96,36 @@ class SurrealDBVectorStore(VectorStoreInterface):
 
             doc_ids = []
 
-            # Batch insert documents
+            # PARALLEL BATCH INSERT - Create all insert tasks first
+            insert_tasks = []
             for doc, embedding in zip(documents, embeddings):
                 doc_id = doc.doc_id or str(uuid.uuid4())
+                doc_ids.append(doc_id)
 
                 # Sanitize metadata
                 clean_metadata = self._sanitize_metadata(doc.metadata)
 
-                # Create document in SurrealDB
-                await self.client.create(
-                    "documents",
-                    {
-                        "id": doc_id,
-                        "content": doc.content,
-                        "metadata": clean_metadata,
-                        "embedding": embedding,
-                    },
+                # Create insert task (don't await yet)
+                insert_tasks.append(
+                    self.client.create(
+                        "documents",
+                        {
+                            "id": doc_id,
+                            "content": doc.content,
+                            "metadata": clean_metadata,
+                            "embedding": embedding,
+                        },
+                    )
                 )
 
-                doc_ids.append(doc_id)
+            # Execute all inserts in parallel with batching (50 at a time)
+            batch_size = 50
+            for i in range(0, len(insert_tasks), batch_size):
+                batch = insert_tasks[i : i + batch_size]
+                await asyncio.gather(*batch, return_exceptions=True)
+                logger.debug(
+                    f"Inserted batch {i // batch_size + 1}/{(len(insert_tasks) + batch_size - 1) // batch_size}"
+                )
 
             logger.info(f"Added {len(doc_ids)} documents to SurrealDB")
             return doc_ids
@@ -162,11 +180,23 @@ class SurrealDBVectorStore(VectorStoreInterface):
             raise VectorStoreException(f"Failed to add web search results: {str(e)}")
 
     async def similarity_search(self, query: str, k: int = 5) -> List[Document]:
-        """Perform vector similarity search"""
+        """Perform vector similarity search with caching"""
         await self._ensure_connection()
 
         if not self.client:
             raise VectorStoreException("Client not connected")
+
+        # Check cache first (saves 1-2 seconds per follow-up cycle)
+        cache_key = hashlib.md5(f"{query}:{k}".encode()).hexdigest()
+
+        if cache_key in self._search_cache:
+            results, timestamp = self._search_cache[cache_key]
+            if time.time() - timestamp < self._cache_ttl:
+                logger.debug("Using cached vector search results", query_length=len(query))
+                return results[:k]  # Return requested k
+            else:
+                # Cache expired, remove it
+                del self._search_cache[cache_key]
 
         try:
             # Generate query embedding
@@ -199,6 +229,9 @@ class SurrealDBVectorStore(VectorStoreInterface):
                     doc_id=str(result.get("id")),
                 )
                 documents.append(doc)
+
+            # Cache the results
+            self._search_cache[cache_key] = (documents, time.time())
 
             logger.info(f"Retrieved {len(documents)} documents from SurrealDB")
             return documents

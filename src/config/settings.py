@@ -34,22 +34,22 @@ class Settings(BaseSettings):
     # Generation model (primary)
     llm_model: str = Field(default="meta/Meta-Llama-3.1-405B-Instruct")
     llm_temperature: float = Field(default=0.7)
-    llm_max_tokens: int = Field(default=3000)
+    llm_max_tokens: int = Field(default=1500)  # Reduced from 3000 for faster responses
 
     # Evaluation model (for self-assessment)
     evaluation_model: str = Field(default="cohere/Cohere-command-r")
     evaluation_temperature: float = Field(default=0.3)
-    evaluation_max_tokens: int = Field(default=1000)
+    evaluation_max_tokens: int = Field(default=800)  # Reduced from 1000 for faster evaluation
 
     # Summary model (for final synthesis)
     summary_model: str = Field(default="meta/Meta-Llama-3.1-70B-Instruct")
     summary_temperature: float = Field(default=0.5)
-    summary_max_tokens: int = Field(default=4000)
+    summary_max_tokens: int = Field(default=2500)  # Reduced from 4000 for faster synthesis
 
     # Reflexion configuration
-    max_reflexion_cycles: int = Field(default=3)
-    confidence_threshold: float = Field(default=0.85)
-    initial_retrieval_k: int = Field(default=3)
+    max_reflexion_cycles: int = Field(default=2)  # Reduced from 3 - most queries don't need 3+
+    confidence_threshold: float = Field(default=0.80)  # Reduced from 0.85 - more lenient threshold
+    initial_retrieval_k: int = Field(default=5)  # Increased from 3 - better first-pass answers
     reflexion_retrieval_k: int = Field(default=5)
 
     # Memory cache
@@ -79,6 +79,7 @@ class Settings(BaseSettings):
     # Web search retrieval
     web_search_retrieval_k: int = Field(default=3)
     web_search_enable_content_extraction: bool = Field(default=True)
+    web_crawl_concurrency: int = Field(default=5)  # Concurrent web page crawls (was 2)
 
 
 # Global settings instance
