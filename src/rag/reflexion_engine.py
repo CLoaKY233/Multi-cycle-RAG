@@ -123,7 +123,7 @@ class ReflexionRAGEngine:
         # Check QA semantic cache (similarity-based - requires embedding)
         if settings.qa_cache_enabled:
             try:
-                # Generate embedding for the question
+                # Generate embedding for the question (reused for cache storage below)
                 question_embedding = (
                     await self.vector_store.embedding_function.embed_text(question)
                 )
@@ -149,6 +149,9 @@ class ReflexionRAGEngine:
                     "QA cache lookup error (continuing without cache)",
                     error=str(e),
                 )
+                question_embedding = None
+        else:
+            question_embedding = None
 
         # Initialize reflexion memory
         reflexion_memory = ReflexionMemory(original_query=question)
@@ -592,10 +595,13 @@ class ReflexionRAGEngine:
             # Store in QA semantic cache for future similar questions
             if settings.qa_cache_enabled and final_answer:
                 try:
-                    # Generate embedding for the question if not already done
-                    question_embedding = (
-                        await self.vector_store.embedding_function.embed_text(question)
-                    )
+                    # Reuse the embedding computed before the reflexion loop
+                    if question_embedding is None:
+                        question_embedding = (
+                            await self.vector_store.embedding_function.embed_text(
+                                question
+                            )
+                        )
 
                     await self.vector_store.store_qa_cache(
                         question=question,
@@ -938,7 +944,7 @@ class ReflexionRAGEngine:
     async def _stream_qa_cached_result(
         self,
         qa_cache_result: Dict,
-        question_embedding: List[float],
+        _question_embedding: List[float],  # TODO: use for cache update if needed
     ) -> AsyncIterator[StreamingChunk]:
         """Stream cached QA result from semantic cache"""
         yield StreamingChunk(
@@ -1160,7 +1166,11 @@ class ReflexionRAGEngine:
     # Runtime Configuration Methods
 
     def set_web_search_mode(self, mode: WebSearchMode) -> None:
-        """Set web search mode at runtime"""
+        """Set web search mode at runtime.
+
+        Note: mutates the global ``settings`` object — affects all engine
+        instances sharing this process.
+        """
         settings.web_search_mode = mode
         logger.info(f"Web search mode changed to: {mode.value}")
 
@@ -1203,7 +1213,13 @@ class ReflexionRAGEngine:
         }
 
     def get_qa_cache_stats(self) -> Dict:
-        """Get QA cache statistics from vector store"""
+        """Return QA cache configuration values.
+
+        Note: this method returns the current *configuration* (enabled flag and
+        similarity threshold) from ``settings``.  It does **not** return live
+        runtime metrics such as hit counts or cache size — those would require
+        an async call to the vector store.
+        """
         try:
             # Return basic info - actual stats would need async call
             return {

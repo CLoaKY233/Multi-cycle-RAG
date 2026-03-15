@@ -81,7 +81,7 @@ class Settings(BaseSettings):
 
     # QA Semantic Cache
     qa_cache_enabled: bool = Field(default=True)
-    qa_cache_similarity_threshold: float = Field(default=0.85)
+    qa_cache_similarity_threshold: float = Field(default=0.8)
 
 
 # Global settings instance

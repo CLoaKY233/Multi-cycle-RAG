@@ -53,6 +53,8 @@ class GitHubLLM(LLMInterface):
 
     def _requires_completion_tokens(self, model: str) -> bool:
         """Check if model requires max_completion_tokens instead of max_tokens"""
+        # Last verified against GitHub Models catalogue — update if new reasoning
+        # models are added that use max_completion_tokens.
         models_requiring_completion_tokens = [
             "gpt-5",
             "o1-",
@@ -64,6 +66,8 @@ class GitHubLLM(LLMInterface):
 
     def _model_supports_temperature(self, model: str) -> bool:
         """Return False for models that only accept the default temperature (1)."""
+        # Last verified against GitHub Models catalogue — update if new models
+        # are added that reject custom temperature values.
         # Reasoning / constrained models on GitHub Models that reject custom temperature
         no_temp_families = ["o1", "o3", "o4", "gpt-4.1"]
         # Compare against the base model name (strip org prefix, e.g. "openai/o3-mini" → "o3-mini")
@@ -167,7 +171,7 @@ class GitHubLLM(LLMInterface):
                     self._use_temperature = False
                     continue  # retry without temperature in params
                 logger.error("Streaming generation failed", error=str(e))
-                raise LLMException(f"Streaming generation failed: {e}")
+                raise LLMException(f"Streaming generation failed: {e}") from e
 
     async def chat_stream(
         self, messages: List[Dict[str, str]], **kwargs: Any
@@ -237,4 +241,4 @@ class GitHubLLM(LLMInterface):
                     self._use_temperature = False
                     continue  # retry without temperature in params
                 logger.error("Streaming chat failed", error=str(e))
-                raise LLMException(f"Streaming chat failed: {e}")
+                raise LLMException(f"Streaming chat failed: {e}") from e

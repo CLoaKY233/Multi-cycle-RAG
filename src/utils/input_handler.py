@@ -44,46 +44,51 @@ class MultiLineInput:
         Returns:
             User input string, or None if cancelled
         """
-        self._print_hint()
+        while True:
+            self._print_hint()
 
-        try:
-            # Get initial input
-            raw_input = Prompt.ask(f"\n[bold blue]❓ {prompt}[/bold blue]")
+            try:
+                # Get initial input
+                raw_input = Prompt.ask(f"\n[bold blue]❓ {prompt}[/bold blue]")
 
-            # Handle special commands
-            if raw_input.strip().lower() in ["exit", "quit", "q"]:
-                return "exit"
+                # Handle special commands
+                if raw_input.strip().lower() in ["exit", "quit", "q"]:
+                    return "exit"
 
-            if raw_input.strip() == "!!":
-                if self.last_input:
-                    console.print(f"[dim]Repeating: {self.last_input[:50]}...[/dim]")
-                    return self.last_input
-                else:
-                    console.print("[yellow]No previous input to repeat.[/yellow]")
-                    return self.get_input(prompt)
+                if raw_input.strip() == "!!":
+                    if self.last_input:
+                        console.print(
+                            f"[dim]Repeating: {self.last_input[:50]}...[/dim]"
+                        )
+                        return self.last_input
+                    else:
+                        console.print("[yellow]No previous input to repeat.[/yellow]")
+                        continue  # loop back to prompt
 
-            if raw_input.strip().lower() == "\\m":
-                # Enter multiline mode
-                return self._get_multiline_input(prompt)
+                if raw_input.strip().lower() == "\\m":
+                    # Enter multiline mode
+                    return self._get_multiline_input(prompt)
 
-            if raw_input.strip().lower() == "\\e":
-                # Cancel - get new input
-                console.print("[dim]Input cancelled.[/dim]")
-                return self.get_input(prompt)
+                if raw_input.strip().lower() == "\\e":
+                    # Cancel - get new input
+                    console.print("[dim]Input cancelled.[/dim]")
+                    continue  # loop back to prompt
 
-            # Check if user wants to continue with more lines
-            # (empty input followed by content suggests multiline)
-            if raw_input.strip() == "":
-                console.print("[dim]Empty input. Type your question or 'exit'.[/dim]")
-                return self.get_input(prompt)
+                # Check if user wants to continue with more lines
+                # (empty input followed by content suggests multiline)
+                if raw_input.strip() == "":
+                    console.print(
+                        "[dim]Empty input. Type your question or 'exit'.[/dim]"
+                    )
+                    continue  # loop back to prompt
 
-            # Store and return
-            self.last_input = raw_input.strip()
-            return raw_input.strip()
+                # Store and return
+                self.last_input = raw_input.strip()
+                return raw_input.strip()
 
-        except (KeyboardInterrupt, EOFError):
-            console.print("\n[dim]Input cancelled.[/dim]")
-            return None
+            except (KeyboardInterrupt, EOFError):
+                console.print("\n[dim]Input cancelled.[/dim]")
+                return None
 
     def _get_multiline_input(self, prompt: str) -> Optional[str]:
         """Get multi-line input from user"""
@@ -94,47 +99,50 @@ class MultiLineInput:
         console.print("[dim]Type \\e to cancel.[/dim]")
         console.print()
 
-        lines = []
-        empty_line_count = 0
-
         while True:
-            try:
-                # Show line number
-                line_num = len(lines) + 1
-                line = Prompt.ask(f"  [dim]{line_num:2d}|[/dim]")
+            lines = []
+            empty_line_count = 0
 
-                if line.strip().lower() == "\\e":
-                    console.print("[dim]Multi-line input cancelled.[/dim]")
+            while True:
+                try:
+                    # Show line number
+                    line_num = len(lines) + 1
+                    line = Prompt.ask(f"  [dim]{line_num:2d}|[/dim]")
+
+                    if line.strip().lower() == "\\e":
+                        console.print("[dim]Multi-line input cancelled.[/dim]")
+                        # Fall back to normal single-line input
+                        return self.get_input(prompt)
+
+                    if line.strip() == "":
+                        empty_line_count += 1
+                        if empty_line_count >= 2 and len(lines) > 0:
+                            # Double enter with content - submit
+                            break
+                    else:
+                        empty_line_count = 0
+                        lines.append(line)
+
+                except (KeyboardInterrupt, EOFError):
+                    console.print("\n[dim]Multi-line input cancelled.[/dim]")
                     return self.get_input(prompt)
 
-                if line.strip() == "":
-                    empty_line_count += 1
-                    if empty_line_count >= 2 and len(lines) > 0:
-                        # Double enter with content - submit
-                        break
-                else:
-                    empty_line_count = 0
-                    lines.append(line)
+            if not lines:
+                console.print("[dim]No input provided.[/dim]")
+                # Re-enter multiline mode rather than recursing into get_input
+                continue
 
-            except (KeyboardInterrupt, EOFError):
-                console.print("\n[dim]Multi-line input cancelled.[/dim]")
-                return self.get_input(prompt)
+            result = "\n".join(lines)
 
-        if not lines:
-            console.print("[dim]No input provided.[/dim]")
-            return self.get_input(prompt)
+            # Show preview
+            console.print()
+            console.print("[dim]━━━ Input Preview ━━━[/dim]")
+            preview = result[:200] + "..." if len(result) > 200 else result
+            console.print(f"[dim]{preview}[/dim]")
+            console.print("[dim]━━━━━━━━━━━━━━━━━━━[/dim]")
 
-        result = "\n".join(lines)
-
-        # Show preview
-        console.print()
-        console.print("[dim]━━━ Input Preview ━━━[/dim]")
-        preview = result[:200] + "..." if len(result) > 200 else result
-        console.print(f"[dim]{preview}[/dim]")
-        console.print("[dim]━━━━━━━━━━━━━━━━━━━[/dim]")
-
-        self.last_input = result
-        return result
+            self.last_input = result
+            return result
 
     def get_last_input(self) -> Optional[str]:
         """Get the last submitted input"""

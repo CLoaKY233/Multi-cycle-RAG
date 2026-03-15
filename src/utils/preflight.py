@@ -51,22 +51,13 @@ class PreflightChecker:
         source = "missing"
 
         if value:
-            # Check if it's a placeholder/default value
-            placeholder_patterns = [
-                "your_",  # your_username, your_password, etc.
-                "ghp_",  # GitHub token prefix (but this is actually valid)
-            ]
-
             # For GitHub token, ghp_ prefix is valid
             if attr_name == "github_token" and value.startswith(
                 ("ghp_", "github_pat_")
             ):
                 is_present = True
                 source = "env"
-            elif value and not any(value.lower().startswith(p) for p in ["your_"]):
-                is_present = True
-                source = "env"
-            elif value and not str(value).startswith("your_"):
+            elif not value.lower().startswith("your_"):
                 is_present = True
                 source = "env"
 

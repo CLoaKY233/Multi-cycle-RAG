@@ -289,6 +289,16 @@ class VectorStoreInterface(ABC):
         """Lookup similar question in cache by embedding similarity"""
         pass
 
+    @abstractmethod
+    async def delete_all_web_searches(self, confirm_string: str) -> bool:
+        """Delete all web search results from the vector store"""
+        pass
+
+    @abstractmethod
+    async def clear_qa_cache(self) -> bool:
+        """Delete all entries from the QA semantic cache table"""
+        pass
+
 
 class WebSearchInterface(ABC):
     """Abstract interface for web search implementations"""

@@ -462,7 +462,7 @@ class SurrealDBVectorStore(VectorStoreInterface):
 
         except Exception as e:
             logger.error(f"Failed to store QA cache: {str(e)}")
-            raise VectorStoreException(f"Failed to store QA cache: {str(e)}")
+            raise VectorStoreException(f"Failed to store QA cache: {str(e)}") from e
 
     async def lookup_qa_cache(
         self,
@@ -509,6 +509,24 @@ class SurrealDBVectorStore(VectorStoreInterface):
         except Exception as e:
             logger.error(f"QA cache lookup error: {e}")
             return None
+
+    async def clear_qa_cache(self) -> bool:
+        """Delete all entries from the QA semantic cache table.
+
+        Returns True on success, False on failure.
+        """
+        await self._ensure_connection()
+
+        if not self.client:
+            raise VectorStoreException("Client not connected")
+
+        try:
+            await self.client.query("DELETE qa_history;")
+            logger.info("QA cache cleared (all qa_history entries deleted)")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to clear QA cache: {str(e)}")
+            raise VectorStoreException(f"Failed to clear QA cache: {str(e)}") from e
 
     async def close(self):
         """Close database connection"""

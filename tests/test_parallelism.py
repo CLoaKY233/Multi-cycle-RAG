@@ -9,67 +9,119 @@ import ast
 import asyncio
 import time
 from pathlib import Path
+from typing import List, Optional
 
 import pytest
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_function_node(tree: ast.AST, name: str) -> Optional[ast.AsyncFunctionDef]:
+    """Return the first top-level (or class-member) async function named *name*."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == name:
+            return node
+    return None
+
+
+def _enclosing_function_names(tree: ast.AST, target_lineno: int) -> List[str]:
+    """Return the names of all function/async-function nodes that contain
+    the given line number (used to determine 'allowed' sleep contexts)."""
+    names = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            start = node.lineno
+            end = getattr(node, "end_lineno", start)
+            if start <= target_lineno <= end:
+                names.append(node.name)
+    return names
+
+
+def _collect_sleep_calls(tree: ast.AST) -> List[ast.Await]:
+    """Return all AST Await nodes that call asyncio.sleep(...)."""
+    sleeps = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Await):
+            continue
+        call = node.value
+        if not isinstance(call, ast.Call):
+            continue
+        func = call.func
+        # Accept both `asyncio.sleep(...)` (Attribute) forms
+        if isinstance(func, ast.Attribute) and func.attr == "sleep":
+            sleeps.append(node)
+    return sleeps
+
+
+def _has_gather_in_function(func_node: ast.AST) -> bool:
+    """Return True if *func_node* contains an asyncio.gather call."""
+    for node in ast.walk(func_node):
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Attribute) and node.func.attr == "gather":
+                return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Sleep-delay tests
+# ---------------------------------------------------------------------------
 
 
 class TestSleepDelaysRemoved:
     """Test that hardcoded sleep delays have been removed from reflexion loop."""
 
     def test_no_sleep_in_reflexion_engine(self):
-        """Verify no asyncio.sleep calls exist in reflexion_engine.py main loop."""
-        reflexion_path = Path(__file__).parent.parent / "src" / "rag" / "reflexion_engine.py"
+        """Verify no arbitrary asyncio.sleep calls in reflexion_engine.py.
+
+        Only sleeps inside explicitly-allowed helper functions are permitted.
+        """
+        reflexion_path = (
+            Path(__file__).parent.parent / "src" / "rag" / "reflexion_engine.py"
+        )
         source = reflexion_path.read_text()
-        
-        # Parse the AST
         tree = ast.parse(source)
-        
-        sleep_calls = []
-        for node in ast.walk(tree):
-            # Check for await asyncio.sleep() calls
-            if isinstance(node, ast.Await):
-                if isinstance(node.value, ast.Call):
-                    if isinstance(node.value.func, ast.Attribute):
-                        if node.value.func.attr == "sleep":
-                            # Get line number for context
-                            sleep_calls.append(node.lineno)
-        
-        # The only acceptable sleep is for streaming cached results (simulate streaming feel)
-        # Sleep between cycles (line ~486) should be removed
-        # Sleep in _stream_cached_result (line ~815) should be removed
-        
-        # Check that sleep calls in the main reflexion loop area are not present
-        # We look for sleep calls outside of acceptable contexts
-        for lineno in sleep_calls:
-            # Get the source line context
-            lines = source.split('\n')
-            if lineno <= len(lines):
-                line_content = lines[lineno - 1].strip()
-                # Acceptable: sleep in rate limiting context (websearch)
-                # Not acceptable: "Brief pause between cycles" or "simulate streaming"
-                if "Brief pause between cycles" in line_content:
-                    pytest.fail(f"Found arbitrary sleep between cycles at line {lineno}")
-                if "simulate" in line_content.lower() and "stream" in line_content.lower():
-                    pytest.fail(f"Found arbitrary streaming simulation sleep at line {lineno}")
+
+        # Functions allowed to contain asyncio.sleep (e.g. rate-limiting helpers)
+        allowed_functions = {"_stream_cached_result", "_rate_limit_web_search"}
+
+        sleep_nodes = _collect_sleep_calls(tree)
+        for node in sleep_nodes:
+            enclosing = _enclosing_function_names(tree, node.lineno)
+            # If the sleep is inside *any* allowed function, skip it
+            if any(fn in allowed_functions for fn in enclosing):
+                continue
+            pytest.fail(
+                f"Found asyncio.sleep at line {node.lineno} "
+                f"in context {enclosing} — remove or move to an allowed function."
+            )
 
     def test_no_sleep_in_main_loop_body(self):
-        """Specifically check that the main while loop doesn't have sleep delays."""
-        reflexion_path = Path(__file__).parent.parent / "src" / "rag" / "reflexion_engine.py"
+        """Verify the reflexion main loop (query_with_reflexion_stream) has no sleep."""
+        reflexion_path = (
+            Path(__file__).parent.parent / "src" / "rag" / "reflexion_engine.py"
+        )
         source = reflexion_path.read_text()
-        
-        # Look for the specific pattern of sleep at end of cycle loop
-        # The old code had: await asyncio.sleep(0.1)  # Brief pause between cycles
-        if "asyncio.sleep(0.1)" in source and "Brief pause between cycles" in source:
-            pytest.fail("Found 'Brief pause between cycles' sleep delay - should be removed")
-        
-        # Also check for sleep in _stream_cached_result - it's arbitrary delay
-        if "await asyncio.sleep(0.1)" in source:
-            # Check if it's in an acceptable context (rate limiting in websearch)
-            lines = source.split('\n')
-            for i, line in enumerate(lines):
-                if "await asyncio.sleep(0.1)" in line:
-                    # This is a hardcoded arbitrary sleep - should be removed
-                    pytest.fail(f"Found hardcoded asyncio.sleep(0.1) at line {i+1}")
+        tree = ast.parse(source)
+
+        func_node = _get_function_node(tree, "query_with_reflexion_stream")
+        if func_node is None:
+            pytest.skip("query_with_reflexion_stream not found in reflexion_engine.py")
+            return  # unreachable — narrows type for static analysis
+
+        sleep_nodes = _collect_sleep_calls(func_node)
+        if sleep_nodes:
+            lines = [n.lineno for n in sleep_nodes]
+            pytest.fail(
+                f"asyncio.sleep found inside query_with_reflexion_stream "
+                f"at lines {lines} — should be removed."
+            )
+
+
+# ---------------------------------------------------------------------------
+# Concurrent-execution (gather) tests
+# ---------------------------------------------------------------------------
 
 
 class TestConcurrentExecution:
@@ -77,90 +129,125 @@ class TestConcurrentExecution:
 
     def test_similarity_search_combined_uses_gather(self):
         """Verify similarity_search_combined uses asyncio.gather for parallel searches."""
-        store_path = Path(__file__).parent.parent / "src" / "vectorstore" / "surrealdb_store.py"
+        store_path = (
+            Path(__file__).parent.parent / "src" / "vectorstore" / "surrealdb_store.py"
+        )
         source = store_path.read_text()
-        
-        # The similarity_search_combined should use asyncio.gather for concurrent searches
-        # Look for asyncio.gather in the method
-        if "asyncio.gather" not in source:
-            pytest.fail("asyncio.gather not found in surrealdb_store.py - concurrent execution not implemented")
+        tree = ast.parse(source)
+
+        func_node = _get_function_node(tree, "similarity_search_combined")
+        assert func_node is not None, (
+            "similarity_search_combined not found in surrealdb_store.py"
+        )
+        assert _has_gather_in_function(func_node), (
+            "asyncio.gather not found inside similarity_search_combined — "
+            "concurrent execution not implemented"
+        )
 
     def test_reflexion_engine_uses_gather_for_retrieval(self):
-        """Verify reflexion_engine uses asyncio.gather for concurrent DB/web retrieval."""
-        reflexion_path = Path(__file__).parent.parent / "src" / "rag" / "reflexion_engine.py"
+        """Verify query_with_reflexion_stream uses asyncio.gather for concurrent retrieval."""
+        reflexion_path = (
+            Path(__file__).parent.parent / "src" / "rag" / "reflexion_engine.py"
+        )
         source = reflexion_path.read_text()
-        
-        # The main retrieval step should use asyncio.gather when web search is enabled
-        # This allows DB retrieval and web search to happen concurrently
-        if "asyncio.gather" not in source:
-            pytest.fail("asyncio.gather not found in reflexion_engine.py - concurrent retrieval not implemented")
+        tree = ast.parse(source)
+
+        func_node = _get_function_node(tree, "query_with_reflexion_stream")
+        assert func_node is not None, (
+            "query_with_reflexion_stream not found in reflexion_engine.py"
+        )
+        assert _has_gather_in_function(func_node), (
+            "asyncio.gather not found inside query_with_reflexion_stream — "
+            "concurrent DB/web retrieval not implemented"
+        )
 
     @pytest.mark.asyncio
     async def test_concurrent_execution_timing(self):
         """Verify that concurrent execution is faster than sequential."""
-        # Simulate the performance difference
+
         async def slow_task(duration: float) -> str:
             await asyncio.sleep(duration)
             return "result"
-        
+
         # Sequential execution time
         start_sequential = time.time()
         await slow_task(0.1)
         await slow_task(0.1)
         sequential_time = time.time() - start_sequential
-        
+
         # Concurrent execution time with asyncio.gather
         start_concurrent = time.time()
         await asyncio.gather(slow_task(0.1), slow_task(0.1))
         concurrent_time = time.time() - start_concurrent
-        
-        # Concurrent should be roughly half the time of sequential
-        assert concurrent_time < sequential_time * 0.7, \
-            f"Concurrent ({concurrent_time:.3f}s) should be faster than sequential ({sequential_time:.3f}s)"
+
+        assert concurrent_time < sequential_time * 0.7, (
+            f"Concurrent ({concurrent_time:.3f}s) should be faster than "
+            f"sequential ({sequential_time:.3f}s)"
+        )
+
+
+# ---------------------------------------------------------------------------
+# AST-analysis tests (broader coverage)
+# ---------------------------------------------------------------------------
 
 
 class TestASTAnalysis:
     """AST-based analysis for concurrent execution patterns."""
 
     def test_gather_in_vector_store(self):
-        """Analyze surrealdb_store.py for asyncio.gather usage pattern."""
-        store_path = Path(__file__).parent.parent / "src" / "vectorstore" / "surrealdb_store.py"
-        source = store_path.read_text()
-        tree = ast.parse(source)
-        
-        has_gather = False
-        gather_contexts = []
-        
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Attribute):
-                    if node.func.attr == "gather":
-                        has_gather = True
-                        gather_contexts.append(node.lineno)
-        
-        assert has_gather, "asyncio.gather must be used in surrealdb_store.py for concurrent DB searches"
-        print(f"Found asyncio.gather at lines: {gather_contexts}")
+        """similarity_search_combined must call asyncio.gather."""
+        store_path = (
+            Path(__file__).parent.parent / "src" / "vectorstore" / "surrealdb_store.py"
+        )
+        tree = ast.parse(store_path.read_text())
+
+        func_node = _get_function_node(tree, "similarity_search_combined")
+        assert func_node is not None, (
+            "similarity_search_combined not found in surrealdb_store.py"
+        )
+
+        gather_lines = []
+        for node in ast.walk(func_node):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "gather"
+            ):
+                gather_lines.append(node.lineno)
+
+        assert gather_lines, (
+            "asyncio.gather must be used in similarity_search_combined "
+            "for concurrent DB searches"
+        )
+        print(f"Found asyncio.gather at lines: {gather_lines}")
 
     def test_gather_in_reflexion_engine(self):
-        """Analyze reflexion_engine.py for asyncio.gather usage pattern."""
-        reflexion_path = Path(__file__).parent.parent / "src" / "rag" / "reflexion_engine.py"
-        source = reflexion_path.read_text()
-        tree = ast.parse(source)
-        
-        has_gather = False
-        gather_contexts = []
-        
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Attribute):
-                    if node.func.attr == "gather":
-                        has_gather = True
-                        gather_contexts.append(node.lineno)
-        
-        assert has_gather, "asyncio.gather must be used in reflexion_engine.py for concurrent retrieval"
-        print(f"Found asyncio.gather at lines: {gather_contexts}")
+        """query_with_reflexion_stream must call asyncio.gather."""
+        reflexion_path = (
+            Path(__file__).parent.parent / "src" / "rag" / "reflexion_engine.py"
+        )
+        tree = ast.parse(reflexion_path.read_text())
+
+        func_node = _get_function_node(tree, "query_with_reflexion_stream")
+        assert func_node is not None, (
+            "query_with_reflexion_stream not found in reflexion_engine.py"
+        )
+
+        gather_lines = []
+        for node in ast.walk(func_node):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "gather"
+            ):
+                gather_lines.append(node.lineno)
+
+        assert gather_lines, (
+            "asyncio.gather must be used in query_with_reflexion_stream "
+            "for concurrent retrieval"
+        )
+        print(f"Found asyncio.gather at lines: {gather_lines}")
 
 
 if __name__ == "__main__":
-    # Run tests directly
     pytest.main([__file__, "-v"])

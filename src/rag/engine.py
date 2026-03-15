@@ -121,18 +121,44 @@ class RAGEngine:
         logger.info("Deleting all documents from vector store")
         return await self.engine.vector_store.delete_all_documents(confirm_string)
 
+    async def delete_all_web_searches(self, confirm_string: str = "CONFIRM") -> bool:
+        """
+        Delete all web search results from the vector store
+
+        Args:
+            confirm_string: Confirmation string (must be "CONFIRM" in caps)
+
+        Returns:
+            True if web searches were deleted successfully, False otherwise
+        """
+        logger.info("Deleting all web search results from vector store")
+        return await self.engine.vector_store.delete_all_web_searches(confirm_string)
+
+    async def clear_qa_cache(self) -> bool:
+        """
+        Delete all entries from the QA semantic cache table.
+
+        Returns:
+            True if cache was cleared successfully
+        """
+        logger.info("Clearing QA semantic cache")
+        return await self.engine.vector_store.clear_qa_cache()
+
     # Runtime Configuration Methods
 
     def set_web_search_mode(self, mode: str) -> None:
         """Set web search mode: 'off', 'initial_only', or 'every_cycle'"""
         from src.config.settings import WebSearchMode
+
         mode_map = {
             "off": WebSearchMode.OFF,
             "initial_only": WebSearchMode.INITIAL_ONLY,
             "every_cycle": WebSearchMode.EVERY_CYCLE,
         }
         if mode.lower() not in mode_map:
-            raise ValueError(f"Invalid mode: {mode}. Must be one of: {list(mode_map.keys())}")
+            raise ValueError(
+                f"Invalid mode: {mode}. Must be one of: {list(mode_map.keys())}"
+            )
         self.engine.set_web_search_mode(mode_map[mode.lower()])
 
     def set_max_cycles(self, cycles: int) -> None:

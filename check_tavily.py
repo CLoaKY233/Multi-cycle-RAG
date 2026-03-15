@@ -11,10 +11,18 @@ import sys
 
 
 def check_env_file():
-    print("\n[1/4] Checking .env file for TAVILY_API_KEY ...")
+    print("\n[1/4] Checking TAVILY_API_KEY ...")
+
+    # Prefer the already-loaded process environment (set by .env or CI secrets)
+    env_value = os.environ.get("TAVILY_API_KEY", "")
+    if env_value and env_value != "your_tavily_api_key_here":
+        print("  OK   : TAVILY_API_KEY found (from process environment)")
+        return True
+
+    # Fall back to reading the .env file directly
     env_path = os.path.join(os.path.dirname(__file__), ".env")
     if not os.path.exists(env_path):
-        print("  ERROR: .env file not found.")
+        print("  ERROR: TAVILY_API_KEY not in environment and .env file not found.")
         return False
 
     with open(env_path) as f:
@@ -22,7 +30,7 @@ def check_env_file():
             if line.strip().startswith("TAVILY_API_KEY="):
                 value = line.strip().split("=", 1)[1]
                 if value and value != "your_tavily_api_key_here":
-                    print(f"  OK   : TAVILY_API_KEY found ({value[:12]}...)")
+                    print("  OK   : TAVILY_API_KEY found (from .env file)")
                     return True
                 else:
                     print(
@@ -41,7 +49,7 @@ def check_settings():
 
         key = settings.tavily_api_key
         if key:
-            print(f"  OK   : settings.tavily_api_key loaded ({key[:12]}...)")
+            print("  OK   : settings.tavily_api_key loaded")
             return True
         else:
             print("  ERROR: settings.tavily_api_key is empty.")

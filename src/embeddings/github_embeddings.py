@@ -1,4 +1,5 @@
-from typing import List, Optional
+import asyncio
+from typing import Any, Callable, List, Optional, cast
 
 from azure.ai.inference import EmbeddingsClient
 from azure.core.credentials import AzureKeyCredential
@@ -68,7 +69,8 @@ class GithubEmbeddings(EmbeddingInterface):
     async def embed_text(self, text: str) -> List[float]:
         """Embed single text using Azure AI Inference"""
         try:
-            response = self.client.embed(input=[text])  # type: ignore[attr-defined]
+            embed_fn = cast(Callable[..., Any], getattr(self.client, "embed"))
+            response = await asyncio.to_thread(embed_fn, input=[text])
 
             if not response.data or len(response.data) == 0:
                 raise EmbeddingException("No embedding data returned")
@@ -103,7 +105,8 @@ class GithubEmbeddings(EmbeddingInterface):
             for i in range(0, len(texts), batch_size):
                 batch = texts[i : i + batch_size]
 
-                response = self.client.embed(input=batch)  # type: ignore[attr-defined]
+                embed_fn = cast(Callable[..., Any], getattr(self.client, "embed"))
+                response = await asyncio.to_thread(embed_fn, input=batch)
 
                 if not response.data:
                     raise EmbeddingException(

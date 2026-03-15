@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -23,6 +24,7 @@ from src.utils.preflight import run_preflight_checks
 
 app = typer.Typer(help="Interactive RAG Chat with Reflexion Loop")
 console = Console()
+logger = logging.getLogger(__name__)
 
 
 class RuntimeConfig:
@@ -106,9 +108,10 @@ class InteractiveRAGChat:
             status_parts.append(("💾 Cache:OFF", "dim"))
 
         # Build status bar
+        inner_width = max(10, console.width - 4)
         bar_text = Text()
         bar_text.append("┌", style="dim")
-        bar_text.append("─" * 48, style="dim")
+        bar_text.append("─" * inner_width, style="dim")
         bar_text.append("┐\n", style="dim")
         bar_text.append("│ ", style="dim")
 
@@ -119,7 +122,7 @@ class InteractiveRAGChat:
 
         bar_text.append(" │\n", style="dim")
         bar_text.append("└", style="dim")
-        bar_text.append("─" * 48, style="dim")
+        bar_text.append("─" * inner_width, style="dim")
         bar_text.append("┘", style="dim")
 
         console.print(bar_text)
@@ -140,14 +143,6 @@ class InteractiveRAGChat:
         """Process query using reflexion loop with cache indicator"""
 
         console.print("[bold blue]🔄 Activating Reflexion Engine[/bold blue]")
-
-        # Show QA cache check if enabled
-        if self.config.qa_cache_enabled:
-            with console.status(
-                "[dim]Checking QA cache for similar questions...[/dim]", spinner="dots"
-            ):
-                # Cache check happens in the engine
-                pass
 
         current_cycle = 0
         response_text = ""
@@ -333,6 +328,45 @@ class InteractiveRAGChat:
         await self.rag.clear_memory_cache()
         console.print("[bold green]✅ Memory cache cleared successfully.[/bold green]")
 
+    async def delete_all_web_searches(self):
+        """Delete all web search results from the vector store"""
+        current_count = await self.get_websearch_count()
+
+        if current_count == 0:
+            console.print(
+                "[yellow]⚠️  No web search results found in vector store.[/yellow]"
+            )
+            return
+
+        console.print(
+            f"[yellow]⚠️  Warning: This will delete all {current_count} web search results![/yellow]"
+        )
+
+        confirm = Prompt.ask(
+            "[bold red]Type 'CONFIRM' to proceed[/bold red]",
+            default="",
+        )
+
+        if confirm.strip() != "CONFIRM":
+            console.print("[yellow]❌ Deletion cancelled.[/yellow]")
+            return
+
+        try:
+            console.print("[bold red]🗑️  Deleting all web search results...[/bold red]")
+            success = await self.rag.delete_all_web_searches("CONFIRM")
+
+            if success:
+                console.print(
+                    "[bold green]✅ All web search results deleted![/bold green]"
+                )
+            else:
+                console.print(
+                    "[bold red]❌ Failed to delete web search results.[/bold red]"
+                )
+
+        except Exception as e:
+            console.print(f"[bold red]❌ Error: {e}[/bold red]")
+
     async def delete_all_documents(self):
         """Delete all documents from the vector store"""
         current_count = await self.get_document_count()
@@ -494,13 +528,27 @@ class InteractiveRAGChat:
         console.print(f"[green]✅ QA cache {status}[/green]")
 
     async def _clear_qa_cache(self):
-        """Clear QA cache (placeholder - would need DB operation)"""
-        console.print(
-            "[yellow]⚠️  QA cache entries are stored in the database.[/yellow]"
+        """Clear all QA semantic cache entries from the database"""
+        confirm = Prompt.ask(
+            "[bold red]This will delete all QA cache entries. Type 'CONFIRM' to proceed[/bold red]",
+            default="",
         )
-        console.print(
-            "[yellow]To clear, you can delete the qa_history table directly.[/yellow]"
-        )
+
+        if confirm.strip() != "CONFIRM":
+            console.print("[yellow]❌ QA cache clear cancelled.[/yellow]")
+            return
+
+        try:
+            console.print("[bold red]🗑️  Clearing QA cache...[/bold red]")
+            success = await self.rag.clear_qa_cache()
+            if success:
+                console.print(
+                    "[bold green]✅ QA cache cleared successfully.[/bold green]"
+                )
+            else:
+                console.print("[bold red]❌ Failed to clear QA cache.[/bold red]")
+        except Exception as e:
+            console.print(f"[bold red]❌ Error clearing QA cache: {e}[/bold red]")
 
 
 @app.command()
@@ -557,17 +605,39 @@ def chat(
 
         # Cycles
         if cycles is not None:
-            runtime_config.max_cycles = max(1, min(10, cycles))
+            clamped_cycles = max(1, min(10, cycles))
+            if clamped_cycles != cycles:
+                logger.warning(
+                    "cycles value %d out of range [1, 10]; clamped to %d",
+                    cycles,
+                    clamped_cycles,
+                )
+            runtime_config.max_cycles = clamped_cycles
 
         # Threshold
         if threshold is not None:
-            runtime_config.confidence_threshold = max(0.0, min(1.0, threshold))
+            clamped_threshold = max(0.0, min(1.0, threshold))
+            if clamped_threshold != threshold:
+                logger.warning(
+                    "threshold value %.4f out of range [0.0, 1.0]; clamped to %.4f",
+                    threshold,
+                    clamped_threshold,
+                )
+            runtime_config.confidence_threshold = clamped_threshold
 
         # Cache
         if no_cache:
             runtime_config.qa_cache_enabled = False
+            logger.info("QA semantic cache disabled via --no-cache flag")
         if cache_threshold is not None:
-            runtime_config.qa_cache_threshold = max(0.0, min(1.0, cache_threshold))
+            clamped_ct = max(0.0, min(1.0, cache_threshold))
+            if clamped_ct != cache_threshold:
+                logger.warning(
+                    "cache_threshold value %.4f out of range [0.0, 1.0]; clamped to %.4f",
+                    cache_threshold,
+                    clamped_ct,
+                )
+            runtime_config.qa_cache_threshold = clamped_ct
 
         # Override model if specified
         if model:
@@ -714,8 +784,7 @@ def deleteweb():
             return
         chat = InteractiveRAGChat("./docs")
         console.print("[bold red]🗑️  Web Search Deletion Mode[/bold red]")
-        # Use the same delete function for now
-        await chat.delete_all_documents()
+        await chat.delete_all_web_searches()
 
     asyncio.run(delete_main())
 
