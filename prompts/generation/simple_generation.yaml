@@ -48,6 +48,8 @@ prompt_template: |
   - Be comprehensive and accurate
   - If context is insufficient, state what information is missing
   - End with a "Sources" section listing unique source files only
+  - Always write a complete, self-contained response — never stop mid-sentence or mid-list
+  - End each source entry in the Sources section with a period.
 
   CITATION FORMAT:
   - Use [Source: filename] for inline citations (NOT [Doc X])

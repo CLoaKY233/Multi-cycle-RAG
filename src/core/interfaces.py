@@ -224,6 +224,12 @@ class ReflexionEvaluatorInterface(ABC):
 class VectorStoreInterface(ABC):
     """Abstract base class for all vector store implementations"""
 
+    @property
+    @abstractmethod
+    def embedding_function(self) -> "EmbeddingInterface":
+        """Get the embedding function used by this vector store"""
+        pass
+
     @abstractmethod
     async def add_documents(self, documents: List[Document]) -> List[str]:
         """Add documents and return their IDs"""
@@ -261,6 +267,26 @@ class VectorStoreInterface(ABC):
         self, query: str, k_docs: int = 3, k_web: int = 2
     ) -> List[Document]:
         """Search both documents and web searches with separate limits"""
+        pass
+
+    @abstractmethod
+    async def store_qa_cache(
+        self,
+        question: str,
+        question_embedding: List[float],
+        answer: str,
+        metadata: Dict[str, Any] | None = None,
+    ) -> str:
+        """Store a question-answer pair in the semantic cache"""
+        pass
+
+    @abstractmethod
+    async def lookup_qa_cache(
+        self,
+        query_embedding: List[float],
+        threshold: float = 0.85,
+    ) -> Dict[str, Any] | None:
+        """Lookup similar question in cache by embedding similarity"""
         pass
 
 

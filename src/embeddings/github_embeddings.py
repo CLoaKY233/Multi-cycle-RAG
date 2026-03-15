@@ -3,10 +3,10 @@ from typing import List, Optional
 from azure.ai.inference import EmbeddingsClient
 from azure.core.credentials import AzureKeyCredential
 
-from ..config.settings import settings
-from ..core.exceptions import EmbeddingException
-from ..core.interfaces import EmbeddingInterface
-from ..utils.logging import logger
+from src.config.settings import settings
+from src.core.exceptions import EmbeddingException
+from src.core.interfaces import EmbeddingInterface
+from src.utils.logging import logger
 
 
 class GithubEmbeddings(EmbeddingInterface):
@@ -68,7 +68,7 @@ class GithubEmbeddings(EmbeddingInterface):
     async def embed_text(self, text: str) -> List[float]:
         """Embed single text using Azure AI Inference"""
         try:
-            response = self.client.embed(input=[text])
+            response = self.client.embed(input=[text])  # type: ignore[attr-defined]
 
             if not response.data or len(response.data) == 0:
                 raise EmbeddingException("No embedding data returned")
@@ -103,7 +103,7 @@ class GithubEmbeddings(EmbeddingInterface):
             for i in range(0, len(texts), batch_size):
                 batch = texts[i : i + batch_size]
 
-                response = self.client.embed(input=batch)
+                response = self.client.embed(input=batch)  # type: ignore[attr-defined]
 
                 if not response.data:
                     raise EmbeddingException(

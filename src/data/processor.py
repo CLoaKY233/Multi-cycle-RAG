@@ -1,8 +1,8 @@
 from typing import Any, Dict, List
 
-from ..config.settings import settings
-from ..core.interfaces import Document
-from ..utils.logging import logger
+from src.config.settings import settings
+from src.core.interfaces import Document
+from src.utils.logging import logger
 
 
 class CustomTextSplitter:

@@ -1,12 +1,12 @@
 import asyncio
+import re
 import time
 from datetime import datetime
-from typing import AsyncIterator, Dict, List, Optional
+from typing import AsyncIterator, Dict, List, Optional, cast
 
 from prompts.manager import prompt_manager
-
-from ..config.settings import WebSearchMode, settings
-from ..core.interfaces import (
+from src.config.settings import WebSearchMode, settings
+from src.core.interfaces import (
     Document,
     LLMInterface,
     ReflexionCycle,
@@ -20,14 +20,14 @@ from ..core.interfaces import (
     WebSearchResult,
     WebSearchStatus,
 )
-from ..data.loader import DocumentLoader
-from ..data.processor import DocumentProcessor
-from ..llm.github_llm import GitHubLLM
-from ..memory.cache import ReflexionMemoryCache, create_query_hash
-from ..reflexion.evaluator import SmartReflexionEvaluator
-from ..utils.logging import logger
-from ..vectorstore.surrealdb_store import SurrealDBVectorStore
-from ..websearch.google_search import GoogleWebSearch
+from src.data.loader import DocumentLoader
+from src.data.processor import DocumentProcessor
+from src.llm.github_llm import GitHubLLM
+from src.memory.cache import ReflexionMemoryCache, create_query_hash
+from src.reflexion.evaluator import SmartReflexionEvaluator
+from src.utils.logging import logger
+from src.vectorstore.surrealdb_store import SurrealDBVectorStore
+from src.websearch.tavily_search import TavilyWebSearch
 
 
 class ReflexionRAGEngine:
@@ -67,7 +67,7 @@ class ReflexionRAGEngine:
         )
 
         # Web search integration
-        self.web_search = web_search or GoogleWebSearch()
+        self.web_search = web_search or TavilyWebSearch()
 
         # Memory cache for reflexion loops
         self.memory_cache = (
@@ -103,7 +103,7 @@ class ReflexionRAGEngine:
             web_mode=settings.web_search_mode.value,
         )
 
-        # Check memory cache first
+        # Check memory cache first (exact hash match - cheap)
         query_hash = create_query_hash(question)
         cached_memory = None
         if self.memory_cache:
@@ -117,6 +117,36 @@ class ReflexionRAGEngine:
             except Exception as e:
                 logger.warning(
                     "Cache retrieval error (continuing without cache)",
+                    error=str(e),
+                )
+
+        # Check QA semantic cache (similarity-based - requires embedding)
+        if settings.qa_cache_enabled:
+            try:
+                # Generate embedding for the question
+                question_embedding = (
+                    await self.vector_store.embedding_function.embed_text(question)
+                )
+
+                # Check semantic cache
+                qa_cache_result = await self.vector_store.lookup_qa_cache(
+                    question_embedding, threshold=settings.qa_cache_similarity_threshold
+                )
+
+                if qa_cache_result:
+                    logger.info(
+                        "QA cache hit",
+                        similarity=qa_cache_result["similarity_score"],
+                        cached_question=qa_cache_result["question"][:50],
+                    )
+                    async for chunk in self._stream_qa_cached_result(
+                        qa_cache_result, question_embedding
+                    ):
+                        yield chunk
+                    return
+            except Exception as e:
+                logger.warning(
+                    "QA cache lookup error (continuing without cache)",
                     error=str(e),
                 )
 
@@ -150,9 +180,9 @@ class ReflexionRAGEngine:
                     )
 
                     if should_perform_web_search:
-                        # Use combined search with token limits
+                        # Use combined search with token limits - execute concurrently with web search
                         logger.info(
-                            "Performing combined DB and web search",
+                            "Performing concurrent DB and web search",
                             cycle=cycle_number,
                         )
 
@@ -163,10 +193,31 @@ class ReflexionRAGEngine:
                         )  # Limit web docs
 
                         try:
-                            retrieved_docs = (
-                                await self.vector_store.similarity_search_combined(
+                            # Execute DB retrieval and new web search concurrently using asyncio.gather
+                            retrieved_docs, web_search_results = await asyncio.gather(
+                                self.vector_store.similarity_search_combined(
                                     current_query, k_docs=k_docs, k_web=k_web
+                                ),
+                                self._perform_web_search(current_query),
+                                return_exceptions=True,
+                            )
+
+                            # Handle potential exceptions from gather
+                            if isinstance(retrieved_docs, Exception):
+                                logger.error(
+                                    "DB retrieval error", error=str(retrieved_docs)
                                 )
+                                retrieved_docs = []
+                            if isinstance(web_search_results, Exception):
+                                logger.error(
+                                    "Web search error", error=str(web_search_results)
+                                )
+                                web_search_results = []
+
+                            # Cast to proper types after exception handling
+                            retrieved_docs = cast(List[Document], retrieved_docs)
+                            web_search_results = cast(
+                                List[WebSearchResult], web_search_results
                             )
 
                             # Separate for reporting
@@ -181,13 +232,8 @@ class ReflexionRAGEngine:
                                 if d.metadata.get("source_type") == "web_search"
                             ]
 
-                            # For web search results, we still need to perform the search for new content
-                            web_search_results = await self._perform_web_search(
-                                current_query
-                            )
-
                             logger.info(
-                                "Combined retrieval completed",
+                                "Concurrent retrieval completed",
                                 db_docs=len(db_docs),
                                 web_docs=len(web_docs),
                                 new_web_results=len(web_search_results),
@@ -483,7 +529,6 @@ class ReflexionRAGEngine:
                         break
 
                 cycle_number += 1
-                await asyncio.sleep(0.1)  # Brief pause between cycles
 
             # Final synthesis if needed
             if not reflexion_memory.final_answer and len(reflexion_memory.cycles) > 1:
@@ -537,12 +582,42 @@ class ReflexionRAGEngine:
             # Add processing metadata
             reflexion_memory.total_processing_time = time.time() - start_time
 
-            # Cache the result
+            # Cache the result in memory cache
             if self.memory_cache:
                 try:
                     self.memory_cache.put(query_hash, reflexion_memory)
                 except Exception as e:
                     logger.error("Error caching result", error=str(e))
+
+            # Store in QA semantic cache for future similar questions
+            if settings.qa_cache_enabled and final_answer:
+                try:
+                    # Generate embedding for the question if not already done
+                    question_embedding = (
+                        await self.vector_store.embedding_function.embed_text(question)
+                    )
+
+                    await self.vector_store.store_qa_cache(
+                        question=question,
+                        question_embedding=question_embedding,
+                        answer=final_answer,
+                        metadata={
+                            "total_cycles": len(reflexion_memory.cycles),
+                            "total_processing_time": reflexion_memory.total_processing_time,
+                            "final_confidence": reflexion_memory.cycles[
+                                -1
+                            ].evaluation.confidence_score
+                            if reflexion_memory.cycles
+                            else 0.0,
+                            "web_search_used": any(
+                                cycle.web_search_enabled
+                                for cycle in reflexion_memory.cycles
+                            ),
+                        },
+                    )
+                    logger.info("Stored QA cache entry for future similar questions")
+                except Exception as e:
+                    logger.error("Error storing QA cache", error=str(e))
 
             # Stream final answer with metadata
             try:
@@ -746,24 +821,60 @@ class ReflexionRAGEngine:
         return f"{web_header}\n\nContent:\n{content}\n{'-' * 80}"
 
     def _is_likely_truncated(self, response: str) -> bool:
-        """Check if response appears to be truncated"""
+        """Return True only when a response is genuinely cut off mid-stream.
+
+        The previous implementation flagged any response that didn't end with
+        ``.!?:;`` as truncated, causing false positives for answers that end
+        with a parenthetical, a bracket, a quote, a markdown list item, etc.
+        (e.g. a Sources line like ``README.md (... multiple sections)``).
+
+        New logic:
+        - First look for *explicit* truncation markers in the content.
+        - Then check whether the final character is any reasonable terminal
+          character (sentence punct + structural chars used by markdown/lists).
+        - If the last line is a markdown structure (list item, heading, …) it
+          is considered complete regardless of the final character.
+        - Only flag as truncated when the response ends with a bare
+          alphanumeric character AND looks genuinely mid-sentence (last word
+          is very short or the line has no punctuation at all).
+        """
         if not response or len(response.strip()) < 50:
             return False
 
-        if not any(response.strip().endswith(end) for end in [".", "!", "?", ":", ";"]):
-            return True
+        stripped = response.strip()
 
-        truncation_indicators = [
-            "...",
+        # Explicit markers that are unambiguously left by truncation logic
+        truncation_markers = [
             "[truncated]",
             "[cut off]",
             "due to length",
             "character limit",
             "token limit",
         ]
-
-        if any(indicator in response.lower() for indicator in truncation_indicators):
+        if any(marker in stripped.lower() for marker in truncation_markers):
             return True
+
+        # Characters that legitimately end a response:
+        # sentence endings, parentheticals, brackets, quotes, markdown glyphs
+        valid_end_chars = frozenset(".!?:;)]\"'`-*_~|")
+        if stripped[-1] in valid_end_chars:
+            return False
+
+        # A markdown structural line (list item, heading, fence, rule) is complete
+        last_line = stripped.split("\n")[-1].strip()
+        if re.match(r"^(#{1,6}\s|[-*+]\s|\d+\.\s|```|---|\*\*\*)", last_line):
+            return False
+
+        # Ends with an alphanumeric char — only flag if it looks mid-sentence:
+        # the last word is suspiciously short (< 3 chars) suggesting a cut-off,
+        # or the entire last line has zero punctuation AND is very short.
+        words = last_line.split()
+        if words:
+            last_word = words[-1].rstrip(".,;:!?)")
+            if len(last_word) < 3 and len(words) > 1:
+                return True  # e.g. ends " …the fo" — looks cut off
+            if len(last_line) < 20 and not any(c in last_line for c in ".!?,;:"):
+                return True  # very short, punctuation-free last line
 
         return False
 
@@ -812,7 +923,6 @@ class ReflexionRAGEngine:
                     "web_results_count": len(cycle.web_search_results),
                 },
             )
-            await asyncio.sleep(0.1)
 
         yield StreamingChunk(
             content=f"\n## 🎯 Final Answer (Cached)\n\n{memory.final_answer}",
@@ -822,6 +932,32 @@ class ReflexionRAGEngine:
                 "total_cycles": len(memory.cycles),
                 "total_processing_time": memory.total_processing_time,
                 "total_web_results": memory.total_web_results_retrieved,
+            },
+        )
+
+    async def _stream_qa_cached_result(
+        self,
+        qa_cache_result: Dict,
+        question_embedding: List[float],
+    ) -> AsyncIterator[StreamingChunk]:
+        """Stream cached QA result from semantic cache"""
+        yield StreamingChunk(
+            content=f"\n## 💾 Semantically Cached Answer\n\n**Similar question:** {qa_cache_result['question']}\n\n**Similarity:** {qa_cache_result['similarity_score']:.2%}\n\n---\n\n",
+            metadata={
+                "qa_cache_hit": True,
+                "similarity_score": qa_cache_result["similarity_score"],
+                "original_question": qa_cache_result["question"],
+            },
+        )
+
+        yield StreamingChunk(
+            content=f"{qa_cache_result['answer']}",
+            is_complete=True,
+            metadata={
+                "qa_cached_result": True,
+                "similarity_score": qa_cache_result["similarity_score"],
+                "cache_id": qa_cache_result.get("cache_id", ""),
+                "processing_time": 0.0,  # Instant retrieval
             },
         )
 
@@ -1020,3 +1156,59 @@ class ReflexionRAGEngine:
             logger.info("Memory cache cleared")
         else:
             logger.warning("Memory cache is disabled, nothing to clear")
+
+    # Runtime Configuration Methods
+
+    def set_web_search_mode(self, mode: WebSearchMode) -> None:
+        """Set web search mode at runtime"""
+        settings.web_search_mode = mode
+        logger.info(f"Web search mode changed to: {mode.value}")
+
+    def set_max_cycles(self, cycles: int) -> None:
+        """Set max reflexion cycles at runtime"""
+        if cycles < 1 or cycles > 10:
+            raise ValueError("Cycles must be between 1 and 10")
+        settings.max_reflexion_cycles = cycles
+        logger.info(f"Max reflexion cycles changed to: {cycles}")
+
+    def set_confidence_threshold(self, threshold: float) -> None:
+        """Set confidence threshold at runtime"""
+        if threshold < 0.0 or threshold > 1.0:
+            raise ValueError("Threshold must be between 0.0 and 1.0")
+        settings.confidence_threshold = threshold
+        logger.info(f"Confidence threshold changed to: {threshold}")
+
+    def set_qa_cache_enabled(self, enabled: bool) -> None:
+        """Enable or disable QA semantic cache at runtime"""
+        settings.qa_cache_enabled = enabled
+        logger.info(f"QA cache enabled: {enabled}")
+
+    def set_qa_cache_threshold(self, threshold: float) -> None:
+        """Set QA cache similarity threshold at runtime"""
+        if threshold < 0.0 or threshold > 1.0:
+            raise ValueError("Threshold must be between 0.0 and 1.0")
+        settings.qa_cache_similarity_threshold = threshold
+        logger.info(f"QA cache threshold changed to: {threshold}")
+
+    def get_runtime_config(self) -> Dict:
+        """Get current runtime configuration"""
+        return {
+            "web_search_mode": settings.web_search_mode.value,
+            "max_reflexion_cycles": settings.max_reflexion_cycles,
+            "confidence_threshold": settings.confidence_threshold,
+            "qa_cache_enabled": settings.qa_cache_enabled,
+            "qa_cache_threshold": settings.qa_cache_similarity_threshold,
+            "memory_cache_enabled": settings.enable_memory_cache,
+            "llm_model": settings.llm_model,
+        }
+
+    def get_qa_cache_stats(self) -> Dict:
+        """Get QA cache statistics from vector store"""
+        try:
+            # Return basic info - actual stats would need async call
+            return {
+                "enabled": settings.qa_cache_enabled,
+                "threshold": settings.qa_cache_similarity_threshold,
+            }
+        except Exception as e:
+            return {"error": str(e)}

@@ -3,8 +3,8 @@ from typing import Any, Dict, List, Optional
 
 from llama_index.core import SimpleDirectoryReader
 
-from ..core.exceptions import RAGException
-from ..core.interfaces import Document
+from src.core.exceptions import RAGException
+from src.core.interfaces import Document
 
 
 class DocumentLoader:

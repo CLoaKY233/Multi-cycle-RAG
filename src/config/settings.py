@@ -72,13 +72,16 @@ class Settings(BaseSettings):
     web_search_min_content_length: int = Field(default=200)
     web_search_max_title_length: int = Field(default=80)
 
-    # Google Search API
-    google_api_key: str = Field(default="")
-    google_cse_id: str = Field(default="")
+    # Tavily Search API
+    tavily_api_key: str = Field(default="")
 
     # Web search retrieval
     web_search_retrieval_k: int = Field(default=3)
     web_search_enable_content_extraction: bool = Field(default=True)
+
+    # QA Semantic Cache
+    qa_cache_enabled: bool = Field(default=True)
+    qa_cache_similarity_threshold: float = Field(default=0.85)
 
 
 # Global settings instance
