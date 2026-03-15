@@ -1,6 +1,0 @@
-commands:
-  install: uv sync
-  test: pytest || echo "No pytest configured, please run specific file tests"
-  lint: ruff check . || echo "Ruff not configured"
-
-services: {}
