@@ -33,8 +33,7 @@ class PreflightChecker:
     ]
 
     OPTIONAL_CREDENTIALS = [
-        ("google_api_key", "Google API Key", "Required for web search"),
-        ("google_cse_id", "Google CSE ID", "Required for web search"),
+        ("tavily_api_key", "Tavily API Key", "Required for web search"),
     ]
 
     def __init__(self):
@@ -105,11 +104,8 @@ class PreflightChecker:
 
     def get_feature_status(self) -> dict:
         """Get status of optional features based on credentials"""
-        has_google_api = any(
-            r.name == "Google API Key" and r.present for r in self.results
-        )
-        has_google_cse = any(
-            r.name == "Google CSE ID" and r.present for r in self.results
+        has_tavily_api = any(
+            r.name == "Tavily API Key" and r.present for r in self.results
         )
         has_github_token = any(
             r.name == "GitHub Token" and r.present for r in self.results
@@ -119,7 +115,7 @@ class PreflightChecker:
         )
 
         return {
-            "web_search": has_google_api and has_google_cse,
+            "web_search": has_tavily_api,
             "llm": has_github_token,
             "database": has_db,
         }
@@ -179,7 +175,7 @@ class PreflightChecker:
             feature_status.append("[green]🌐 Web Search: Enabled[/green]")
         else:
             feature_status.append(
-                "[dim]🌐 Web Search: Disabled[/dim] (requires Google API)"
+                "[dim]🌐 Web Search: Disabled[/dim] (requires Tavily API key)"
             )
 
         if features["llm"]:

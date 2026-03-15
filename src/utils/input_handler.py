@@ -109,7 +109,7 @@ class MultiLineInput:
 
                 if line.strip() == "":
                     empty_line_count += 1
-                    if empty_line_count >= 1 and len(lines) > 0:
+                    if empty_line_count >= 2 and len(lines) > 0:
                         # Double enter with content - submit
                         break
                 else:

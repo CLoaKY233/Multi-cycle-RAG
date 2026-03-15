@@ -1,12 +1,11 @@
-import logging
+import asyncio
 from typing import List
 
 from tavily import TavilyClient
 
 from src.config.settings import settings
 from src.core.interfaces import WebSearchInterface, WebSearchResult, WebSearchStatus
-
-logger = logging.getLogger(__name__)
+from src.utils.logging import logger
 
 
 class TavilyWebSearch(WebSearchInterface):
@@ -35,7 +34,7 @@ class TavilyWebSearch(WebSearchInterface):
             self._client = TavilyClient(api_key=api_key)
             return self._client
         except Exception as exc:
-            logger.error("Failed to initialise Tavily client: %s", exc)
+            logger.error("Failed to initialise Tavily client", error=str(exc))
             return None
 
     async def is_available(self) -> bool:
@@ -61,14 +60,16 @@ class TavilyWebSearch(WebSearchInterface):
             ]
 
         try:
-            logger.info("Tavily search: %r (max %d results)", query, num_results)
-            response = client.search(
+            logger.info("Tavily search", query=query, max_results=num_results)
+            # client.search is synchronous — run in a thread to avoid blocking the event loop
+            response = await asyncio.to_thread(
+                client.search,
                 query=query,
                 max_results=num_results,
                 include_raw_content=True,
             )
         except Exception as exc:
-            logger.error("Tavily search failed: %s", exc)
+            logger.error("Tavily search failed", error=str(exc))
             return [
                 WebSearchResult(
                     url="",
@@ -112,8 +113,12 @@ class TavilyWebSearch(WebSearchInterface):
                 )
             )
             logger.debug(
-                "Result %d: %s (%d words, status=%s)", rank, url, word_count, status
+                "Tavily result",
+                rank=rank,
+                url=url,
+                words=word_count,
+                status=status.value,
             )
 
-        logger.info("Tavily returned %d results for query %r", len(results), query)
+        logger.info("Tavily search complete", results=len(results), query=query)
         return results

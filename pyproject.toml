@@ -19,11 +19,6 @@ dependencies = [
     "tavily-python>=0.7.23",
     "typer>=0.16.0",
 ]
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.0.0",
-    "pytest-asyncio>=0.23.0",
-]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
