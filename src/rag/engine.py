@@ -1,9 +1,9 @@
 from typing import AsyncIterator, Dict, Optional
 
-from ..config.settings import settings
-from ..core.interfaces import LLMInterface, StreamingChunk, VectorStoreInterface
-from ..utils.logging import logger
-from .reflexion_engine import ReflexionRAGEngine
+from src.config.settings import settings
+from src.core.interfaces import LLMInterface, StreamingChunk, VectorStoreInterface
+from src.rag.reflexion_engine import ReflexionRAGEngine
+from src.utils.logging import logger
 
 
 class RAGEngine:
@@ -120,3 +120,67 @@ class RAGEngine:
         """
         logger.info("Deleting all documents from vector store")
         return await self.engine.vector_store.delete_all_documents(confirm_string)
+
+    async def delete_all_web_searches(self, confirm_string: str = "CONFIRM") -> bool:
+        """
+        Delete all web search results from the vector store
+
+        Args:
+            confirm_string: Confirmation string (must be "CONFIRM" in caps)
+
+        Returns:
+            True if web searches were deleted successfully, False otherwise
+        """
+        logger.info("Deleting all web search results from vector store")
+        return await self.engine.vector_store.delete_all_web_searches(confirm_string)
+
+    async def clear_qa_cache(self) -> bool:
+        """
+        Delete all entries from the QA semantic cache table.
+
+        Returns:
+            True if cache was cleared successfully
+        """
+        logger.info("Clearing QA semantic cache")
+        return await self.engine.vector_store.clear_qa_cache()
+
+    # Runtime Configuration Methods
+
+    def set_web_search_mode(self, mode: str) -> None:
+        """Set web search mode: 'off', 'initial_only', or 'every_cycle'"""
+        from src.config.settings import WebSearchMode
+
+        mode_map = {
+            "off": WebSearchMode.OFF,
+            "initial_only": WebSearchMode.INITIAL_ONLY,
+            "every_cycle": WebSearchMode.EVERY_CYCLE,
+        }
+        if mode.lower() not in mode_map:
+            raise ValueError(
+                f"Invalid mode: {mode}. Must be one of: {list(mode_map.keys())}"
+            )
+        self.engine.set_web_search_mode(mode_map[mode.lower()])
+
+    def set_max_cycles(self, cycles: int) -> None:
+        """Set max reflexion cycles (1-10)"""
+        self.engine.set_max_cycles(cycles)
+
+    def set_confidence_threshold(self, threshold: float) -> None:
+        """Set confidence threshold (0.0-1.0)"""
+        self.engine.set_confidence_threshold(threshold)
+
+    def set_qa_cache_enabled(self, enabled: bool) -> None:
+        """Enable or disable QA semantic cache"""
+        self.engine.set_qa_cache_enabled(enabled)
+
+    def set_qa_cache_threshold(self, threshold: float) -> None:
+        """Set QA cache similarity threshold (0.0-1.0)"""
+        self.engine.set_qa_cache_threshold(threshold)
+
+    def get_runtime_config(self) -> Dict:
+        """Get current runtime configuration"""
+        return self.engine.get_runtime_config()
+
+    def get_qa_cache_stats(self) -> Dict:
+        """Get QA cache statistics"""
+        return self.engine.get_qa_cache_stats()

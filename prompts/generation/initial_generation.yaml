@@ -62,6 +62,7 @@ prompt_template: |
   2. Use clear, professional language
   3. Organize information logically with headers if needed
   4. Include a "Sources" section at the end with unique source files only
+  5. Always write a complete, self-contained response — never stop mid-sentence or mid-list
 
   IMPORTANT GUIDELINES:
   - Base your response ONLY on the provided documents that directly relate to the query
@@ -70,5 +71,6 @@ prompt_template: |
   - If information is incomplete or unrelated, clearly state limitations without exploring new areas
   - Maintain professional tone throughout
   - In Sources section, list each unique filename only once with its full path
+  - The Sources section must be the final part of your response; end each source entry with a period.
 
   Answer:

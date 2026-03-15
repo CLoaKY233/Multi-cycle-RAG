@@ -1,3 +1,3 @@
-from .google_search import GoogleWebSearch
+from .tavily_search import TavilyWebSearch
 
-__all__ = ["GoogleWebSearch"]
+__all__ = ["TavilyWebSearch"]

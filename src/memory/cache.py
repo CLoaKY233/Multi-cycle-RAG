@@ -3,8 +3,8 @@ import time
 from collections import OrderedDict
 from typing import Any, Dict, Optional
 
-from ..config.settings import settings
-from ..core.interfaces import ReflexionMemory
+from src.config.settings import settings
+from src.core.interfaces import ReflexionMemory
 
 
 class ReflexionMemoryCache:

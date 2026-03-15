@@ -1,13 +1,14 @@
+import asyncio
 import uuid
 from typing import Any, Dict, List
 
 from surrealdb import AsyncSurreal
 
-from ..config.settings import settings
-from ..core.exceptions import VectorStoreException
-from ..core.interfaces import Document, VectorStoreInterface, WebSearchResult
-from ..embeddings.github_embeddings import GithubEmbeddings
-from ..utils.logging import logger
+from src.config.settings import settings
+from src.core.exceptions import VectorStoreException
+from src.core.interfaces import Document, VectorStoreInterface, WebSearchResult
+from src.embeddings.github_embeddings import GithubEmbeddings
+from src.utils.logging import logger
 
 
 class SurrealDBVectorStore(VectorStoreInterface):
@@ -17,7 +18,12 @@ class SurrealDBVectorStore(VectorStoreInterface):
         super().__init__()
         self.client = None
         self.connected = False
-        self.embedding_function = GithubEmbeddings()
+        self._embedding_function = GithubEmbeddings()
+
+    @property
+    def embedding_function(self) -> GithubEmbeddings:
+        """Get the embedding function used by this vector store"""
+        return self._embedding_function
 
     async def _ensure_connection(self):
         """Ensure database connection and schema"""
@@ -48,21 +54,28 @@ class SurrealDBVectorStore(VectorStoreInterface):
             raise VectorStoreException(f"Connection failed: {str(e)}")
 
     async def _setup_schema(self):
-        """Setup vector storage schema"""
+        """Setup vector storage schema without HNSW indexes"""
         if not self.client:
             raise VectorStoreException("Client not initialized")
 
         schema_queries = [
+            # Documents table (no HNSW)
             "DEFINE TABLE IF NOT EXISTS documents SCHEMAFULL;",
             "DEFINE FIELD IF NOT EXISTS content ON documents TYPE string;",
-            "DEFINE FIELD IF NOT EXISTS metadata ON documents FLEXIBLE TYPE object;",
+            "DEFINE FIELD IF NOT EXISTS metadata ON documents TYPE object FLEXIBLE;",
             "DEFINE FIELD IF NOT EXISTS embedding ON documents TYPE array<float>;",
-            "DEFINE INDEX IF NOT EXISTS hnsw_embedding ON documents FIELDS embedding HNSW DIMENSION 3072 DIST COSINE TYPE F32 EFC 500 M 16;",
-            "DEFINE TABLE web_search SCHEMAFULL;",
-            "DEFINE FIELD content ON web_search TYPE string;",
-            "DEFINE FIELD metadata ON web_search FLEXIBLE TYPE object;",
-            "DEFINE FIELD embedding ON web_search TYPE array<float>;",
-            "DEFINE INDEX hnsw_embedding ON web_search FIELDS embedding HNSW DIMENSION 3072 DIST COSINE TYPE F32 EFC 500 M 16;",
+            # Web search table (no HNSW)
+            "DEFINE TABLE IF NOT EXISTS web_search SCHEMAFULL;",
+            "DEFINE FIELD IF NOT EXISTS content ON web_search TYPE string;",
+            "DEFINE FIELD IF NOT EXISTS metadata ON web_search TYPE object FLEXIBLE;",
+            "DEFINE FIELD IF NOT EXISTS embedding ON web_search TYPE array<float>;",
+            # QA History table for semantic caching
+            "DEFINE TABLE IF NOT EXISTS qa_history SCHEMAFULL;",
+            "DEFINE FIELD IF NOT EXISTS question ON qa_history TYPE string;",
+            "DEFINE FIELD IF NOT EXISTS question_embedding ON qa_history TYPE array<float>;",
+            "DEFINE FIELD IF NOT EXISTS answer ON qa_history TYPE string;",
+            "DEFINE FIELD IF NOT EXISTS metadata ON qa_history TYPE object FLEXIBLE;",
+            "DEFINE FIELD IF NOT EXISTS created_at ON qa_history TYPE datetime DEFAULT time::now();",
         ]
 
         for query in schema_queries:
@@ -238,9 +251,11 @@ class SurrealDBVectorStore(VectorStoreInterface):
             LIMIT {k_web};
             """
 
-            # Execute both searches
-            docs_results = await self.client.query(docs_query)
-            web_results = await self.client.query(web_query)
+            # Execute both searches concurrently using asyncio.gather
+            docs_results, web_results = await asyncio.gather(
+                self.client.query(docs_query),
+                self.client.query(web_query),
+            )
 
             # Process and combine results with token limits
             all_documents = []
@@ -413,6 +428,105 @@ class SurrealDBVectorStore(VectorStoreInterface):
                 sanitized[str(k)] = str(v)
 
         return sanitized
+
+    async def store_qa_cache(
+        self,
+        question: str,
+        question_embedding: List[float],
+        answer: str,
+        metadata: Dict[str, Any] | None = None,
+    ) -> str:
+        """Store a question-answer pair in the semantic cache"""
+        await self._ensure_connection()
+
+        if not self.client:
+            raise VectorStoreException("Client not connected")
+
+        try:
+            cache_id = str(uuid.uuid4())
+            clean_metadata = self._sanitize_metadata(metadata or {})
+
+            await self.client.create(
+                "qa_history",
+                {
+                    "id": cache_id,
+                    "question": question,
+                    "question_embedding": question_embedding,
+                    "answer": answer,
+                    "metadata": clean_metadata,
+                },
+            )
+
+            logger.info(f"Stored QA cache entry: {cache_id}")
+            return cache_id
+
+        except Exception as e:
+            logger.error(f"Failed to store QA cache: {str(e)}")
+            raise VectorStoreException(f"Failed to store QA cache: {str(e)}") from e
+
+    async def lookup_qa_cache(
+        self,
+        query_embedding: List[float],
+        threshold: float = 0.85,
+    ) -> Dict[str, Any] | None:
+        """Lookup similar question in cache by embedding similarity"""
+        await self._ensure_connection()
+
+        if not self.client:
+            raise VectorStoreException("Client not connected")
+
+        try:
+            # Search for similar questions using cosine similarity
+            query = f"""
+                SELECT id, question, answer, metadata,
+                       vector::similarity::cosine(question_embedding, {query_embedding}) AS score
+                FROM qa_history
+                WHERE vector::similarity::cosine(question_embedding, {query_embedding}) >= {threshold}
+                ORDER BY score DESC
+                LIMIT 1;
+            """
+
+            results = await self.client.query(query)
+
+            if results and len(results) > 0:
+                result = results[0]
+                if isinstance(result, dict) and result.get("score", 0) >= threshold:
+                    logger.info(
+                        f"QA cache hit: similarity={result['score']:.3f}",
+                        question=result.get("question", "")[:50],
+                    )
+                    return {
+                        "question": result.get("question", ""),
+                        "answer": result.get("answer", ""),
+                        "similarity_score": result.get("score", 0.0),
+                        "metadata": result.get("metadata", {}),
+                        "cache_id": str(result.get("id", "")),
+                    }
+
+            logger.debug("QA cache miss - no similar question found")
+            return None
+
+        except Exception as e:
+            logger.error(f"QA cache lookup error: {e}")
+            return None
+
+    async def clear_qa_cache(self) -> bool:
+        """Delete all entries from the QA semantic cache table.
+
+        Returns True on success, False on failure.
+        """
+        await self._ensure_connection()
+
+        if not self.client:
+            raise VectorStoreException("Client not connected")
+
+        try:
+            await self.client.query("DELETE qa_history;")
+            logger.info("QA cache cleared (all qa_history entries deleted)")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to clear QA cache: {str(e)}")
+            raise VectorStoreException(f"Failed to clear QA cache: {str(e)}") from e
 
     async def close(self):
         """Close database connection"""

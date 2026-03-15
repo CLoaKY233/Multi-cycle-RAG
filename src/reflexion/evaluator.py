@@ -4,17 +4,16 @@ import time
 from typing import List, Optional
 
 from prompts.manager import prompt_manager
-
-from ..config.settings import settings
-from ..core.interfaces import (
+from src.config.settings import settings
+from src.core.interfaces import (
     Document,
     LLMInterface,
     ReflexionDecision,
     ReflexionEvaluation,
     ReflexionEvaluatorInterface,
 )
-from ..llm.github_llm import GitHubLLM
-from ..utils.logging import logger
+from src.llm.github_llm import GitHubLLM
+from src.utils.logging import logger
 
 
 class SmartReflexionEvaluator(ReflexionEvaluatorInterface):
